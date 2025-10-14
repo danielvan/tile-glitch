@@ -12,8 +12,16 @@ function App() {
   const [excludeColor, setExcludeColor] = useState('');
   const [tilesetWeights, setTilesetWeights] = useState({});
   const [cycleTiles, setCycleTiles] = useState(false);
+  const [circularMaskChance, setCircularMaskChance] = useState(0);
+  const [disappearChance, setDisappearChance] = useState(0);
+  const [backgroundColor, setBackgroundColor] = useState('#000000');
+  const [animateMasks, setAnimateMasks] = useState(false);
+  const [animationSpeed, setAnimationSpeed] = useState(50);
+  const [minimizeUI, setMinimizeUI] = useState(false);
   const canvasRef = useRef(null);
   const tilesetImagesRef = useRef([]);
+  const animationFrameRef = useRef(null);
+  const tileAnimationDataRef = useRef([]);
 
   const TILE_SIZE = 8;
 
@@ -168,7 +176,9 @@ function App() {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Fill with background color
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const scaledTileSize = TILE_SIZE * scale;
     const cols = Math.floor(canvasSize.width / scaledTileSize);
@@ -176,6 +186,9 @@ function App() {
 
     // Create a grid to store placed tiles
     const grid = Array(rows).fill(null).map(() => Array(cols).fill(null));
+
+    // Initialize animation data for each tile
+    const animationData = [];
 
     // Tile pool for cycling mode
     let tilePool = [];
@@ -281,15 +294,63 @@ function App() {
         // Store in grid for neighbor checking
         grid[y][x] = selectedTile;
 
+        // Check if tile should disappear
+        const shouldDisappear = Math.random() * 100 < disappearChance;
+
+        // Check if tile should have circular mask
+        const useCircularMask = Math.random() * 100 < circularMaskChance;
+
+        // Store animation data for this tile
+        animationData.push({
+          x: x * scaledTileSize,
+          y: y * scaledTileSize,
+          selectedTile,
+          shouldDisappear,
+          useCircularMask,
+          // Random animation properties
+          phase: Math.random() * Math.PI * 2, // Random starting phase
+          speed: 0.5 + Math.random() * 2, // Speed multiplier (0.5x to 2.5x)
+          direction: Math.random() > 0.5 ? 1 : -1, // 1 for grow-shrink, -1 for shrink-grow
+        });
+
+        if (shouldDisappear) {
+          // Skip drawing this tile (background color will show)
+          continue;
+        }
+
         // Draw tile from the correct tileset image
         const sourceImage = tilesetImagesRef.current[selectedTile.imageIndex];
-        ctx.drawImage(
-          sourceImage,
-          selectedTile.x, selectedTile.y,
-          TILE_SIZE, TILE_SIZE,
-          x * scaledTileSize, y * scaledTileSize,
-          scaledTileSize, scaledTileSize
-        );
+
+        if (useCircularMask) {
+          // Save context and apply circular clipping mask
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(
+            x * scaledTileSize + scaledTileSize / 2,
+            y * scaledTileSize + scaledTileSize / 2,
+            scaledTileSize / 2,
+            0,
+            Math.PI * 2
+          );
+          ctx.clip();
+          ctx.drawImage(
+            sourceImage,
+            selectedTile.x, selectedTile.y,
+            TILE_SIZE, TILE_SIZE,
+            x * scaledTileSize, y * scaledTileSize,
+            scaledTileSize, scaledTileSize
+          );
+          ctx.restore();
+        } else {
+          // Draw normally
+          ctx.drawImage(
+            sourceImage,
+            selectedTile.x, selectedTile.y,
+            TILE_SIZE, TILE_SIZE,
+            x * scaledTileSize, y * scaledTileSize,
+            scaledTileSize, scaledTileSize
+          );
+        }
 
         // Apply glitch effects based on chaos
         if (Math.random() * 100 < chaos / 2) {
@@ -315,7 +376,134 @@ function App() {
         }
       }
     }
+
+    // Store animation data
+    tileAnimationDataRef.current = animationData;
   };
+
+  // Animation loop for masks
+  const animate = (timestamp) => {
+    if (!animateMasks || tileAnimationDataRef.current.length === 0) {
+      animationFrameRef.current = null;
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const scaledTileSize = TILE_SIZE * scale;
+
+    // Fill with background color
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Base animation speed (frames per second converted to radians per frame)
+    const baseSpeed = (animationSpeed / 1000) * 0.1;
+
+    // Draw each tile
+    tileAnimationDataRef.current.forEach((tileData) => {
+      if (tileData.shouldDisappear) return;
+
+      const { x, y, selectedTile, useCircularMask, phase, speed, direction } = tileData;
+      const sourceImage = tilesetImagesRef.current[selectedTile.imageIndex];
+
+      if (useCircularMask && animateMasks) {
+        // Calculate animated radius (0 to 1 scale)
+        const time = (timestamp * baseSpeed * speed + phase) * direction;
+        const scale01 = (Math.sin(time) + 1) / 2; // Oscillates between 0 and 1
+        const radius = (scaledTileSize / 2) * scale01;
+
+        if (radius > 0.5) {
+          // Only draw if radius is meaningful
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(
+            x + scaledTileSize / 2,
+            y + scaledTileSize / 2,
+            radius,
+            0,
+            Math.PI * 2
+          );
+          ctx.clip();
+          ctx.drawImage(
+            sourceImage,
+            selectedTile.x, selectedTile.y,
+            TILE_SIZE, TILE_SIZE,
+            x, y,
+            scaledTileSize, scaledTileSize
+          );
+          ctx.restore();
+        }
+      } else if (useCircularMask) {
+        // Static circular mask (no animation)
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(
+          x + scaledTileSize / 2,
+          y + scaledTileSize / 2,
+          scaledTileSize / 2,
+          0,
+          Math.PI * 2
+        );
+        ctx.clip();
+        ctx.drawImage(
+          sourceImage,
+          selectedTile.x, selectedTile.y,
+          TILE_SIZE, TILE_SIZE,
+          x, y,
+          scaledTileSize, scaledTileSize
+        );
+        ctx.restore();
+      } else if (animateMasks) {
+        // Animate opacity for non-circular tiles
+        const time = (timestamp * baseSpeed * speed + phase) * direction;
+        const opacity = (Math.sin(time) + 1) / 2; // Oscillates between 0 and 1
+
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(
+          sourceImage,
+          selectedTile.x, selectedTile.y,
+          TILE_SIZE, TILE_SIZE,
+          x, y,
+          scaledTileSize, scaledTileSize
+        );
+        ctx.restore();
+      } else {
+        // Normal tile (no animation)
+        ctx.drawImage(
+          sourceImage,
+          selectedTile.x, selectedTile.y,
+          TILE_SIZE, TILE_SIZE,
+          x, y,
+          scaledTileSize, scaledTileSize
+        );
+      }
+    });
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+  };
+
+  // Start/stop animation
+  useEffect(() => {
+    if (animateMasks && tileAnimationDataRef.current.length > 0) {
+      animationFrameRef.current = requestAnimationFrame(animate);
+    } else {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      // Redraw static pattern
+      if (tiles.length > 0) {
+        generatePattern();
+      }
+    }
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [animateMasks, animationSpeed, backgroundColor]);
 
   // Export canvas as PNG
   const exportPattern = () => {
@@ -348,7 +536,17 @@ function App() {
       </header>
 
       <div className="container">
-        <div className="controls">
+        <div className={`controls ${minimizeUI ? 'minimized' : ''}`}>
+          <button
+            className="minimize-btn"
+            onClick={() => setMinimizeUI(!minimizeUI)}
+            title={minimizeUI ? "Show controls" : "Hide controls"}
+          >
+            {minimizeUI ? '▼' : '▲'}
+          </button>
+
+          {!minimizeUI && (
+            <>
           <div className="control-group">
             <label>Upload Tileset(s)</label>
             <input type="file" accept="image/*" multiple onChange={handleFileUpload} />
@@ -428,6 +626,61 @@ function App() {
           </div>
 
           <div className="control-group">
+            <label>Circular Mask: {circularMaskChance}%</label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={circularMaskChance}
+              onChange={(e) => setCircularMaskChance(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="control-group checkbox">
+            <label>
+              <input
+                type="checkbox"
+                checked={animateMasks}
+                onChange={(e) => setAnimateMasks(e.target.checked)}
+              />
+              Animate Masks
+            </label>
+          </div>
+
+          {animateMasks && (
+            <div className="control-group">
+              <label>Animation Speed: {animationSpeed}%</label>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                value={animationSpeed}
+                onChange={(e) => setAnimationSpeed(Number(e.target.value))}
+              />
+            </div>
+          )}
+
+          <div className="control-group">
+            <label>Disappear: {disappearChance}%</label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={disappearChance}
+              onChange={(e) => setDisappearChance(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="control-group">
+            <label>Background Color</label>
+            <input
+              type="color"
+              value={backgroundColor}
+              onChange={(e) => setBackgroundColor(e.target.value)}
+            />
+          </div>
+
+          <div className="control-group">
             <label>Exclude Color</label>
             <input
               type="color"
@@ -464,6 +717,8 @@ function App() {
             <div className="info">
               📊 {tiles.length} tiles loaded
             </div>
+          )}
+          </>
           )}
         </div>
 
