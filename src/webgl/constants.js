@@ -4,7 +4,7 @@ export const TILE_SIZE = 8;
 // Number of floats per tile instance in the instance buffer
 export const FLOATS_PER_INSTANCE = 16;
 
-// Byte offsets into each instance's data (in float units, multiply by 4 for bytes)
+// Float indices into each instance's data (multiply by 4 for byte offset)
 export const I_POS_X      = 0;
 export const I_POS_Y      = 1;
 export const I_UV_X       = 2;
