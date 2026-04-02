@@ -89,7 +89,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
     const tileCol = Math.floor(x / scaledTileSize);
     const tileRow = Math.floor(y / scaledTileSize);
     const { cols: c, rows: r } = oldDimsRef.current;
-    const value = paintMode === 'paint' ? 1 : 0;
+    const value = paintMode === 'paint' ? 255 : 0;
 
     let changed = false;
     for (let dr = -brushSize; dr <= brushSize; dr++) {
