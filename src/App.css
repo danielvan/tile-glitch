@@ -324,3 +324,12 @@ input[type="file"] {
   cursor: pointer;
   font-family: inherit;
 }
+
+.undo-redo-row {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.undo-redo-row button {
+  flex: 1;
+}

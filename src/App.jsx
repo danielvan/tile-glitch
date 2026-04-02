@@ -78,7 +78,7 @@ function App() {
 
   const { bgImage, bgUrl, handleBgUpload, clearBackground } = useBackgroundImage();
 
-  const { maskTextureRef, maskVersion, resetMask, brushPreview } =
+  const { maskTextureRef, maskVersion, resetMask, brushPreview, undo, redo, canUndo, canRedo } =
     useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushSize);
 
   const fps = useWebGLRenderer(canvasRef, atlasData, instanceData, {
@@ -252,6 +252,11 @@ function App() {
                 <label>Brush Size: {brushSize}</label>
                 <input type="range" min="1" max="10" value={brushSize}
                   onChange={handleChange(setBrushSize)} />
+              </div>
+
+              <div className="undo-redo-row">
+                <button className="btn-secondary" onClick={undo} disabled={!canUndo}>↩ Undo</button>
+                <button className="btn-secondary" onClick={redo} disabled={!canRedo}>↪ Redo</button>
               </div>
 
               <button className="btn-secondary" onClick={resetMask}>Reset Mask</button>
