@@ -15,7 +15,7 @@ function App() {
   const [coherence, setCoherence]                   = useState(50);
   const [normalize, setNormalize]                   = useState(50);
   const [scale, setScale]                           = useState(1);
-  const [excludeColor, setExcludeColor]             = useState('');
+  const [excludeTolerance, setExcludeTolerance]     = useState(8);
   const [tilesetWeights, setTilesetWeights]         = useState({});
   const [cycleTiles, setCycleTiles]                 = useState(false);
   const [circularMaskChance, setCircularMaskChance] = useState(0);
@@ -45,7 +45,7 @@ function App() {
         const img = new Image();
         img.onload = () => {
           const newId = Date.now() + index;
-          setTilesets(prev => [...prev, { id: newId, url: event.target.result, img }]);
+          setTilesets(prev => [...prev, { id: newId, url: event.target.result, img, excludeColors: [] }]);
           setTilesetWeights(prev => ({ ...prev, [newId]: 50 }));
         };
         img.src = event.target.result;
@@ -59,7 +59,27 @@ function App() {
     setTilesetWeights(prev => { const n = { ...prev }; delete n[id]; return n; });
   };
 
-  const atlasData = useTileset(tilesets, excludeColor);
+  const addExcludeColor = (id) => {
+    setTilesets(prev => prev.map(t =>
+      t.id === id ? { ...t, excludeColors: [...t.excludeColors, '#00ff00'] } : t
+    ));
+  };
+
+  const removeExcludeColor = (id, index) => {
+    setTilesets(prev => prev.map(t =>
+      t.id === id ? { ...t, excludeColors: t.excludeColors.filter((_, i) => i !== index) } : t
+    ));
+  };
+
+  const updateExcludeColor = (id, index, hex) => {
+    setTilesets(prev => prev.map(t =>
+      t.id === id
+        ? { ...t, excludeColors: t.excludeColors.map((c, i) => i === index ? hex : c) }
+        : t
+    ));
+  };
+
+  const atlasData = useTileset(tilesets, excludeTolerance);
 
   const cols           = Math.floor(canvasSize.width  / (TILE_SIZE * scale));
   const rows           = Math.floor(canvasSize.height / (TILE_SIZE * scale));
@@ -137,6 +157,18 @@ function App() {
                           onPointerUp={handlePointerUp}
                         />
                       </div>
+                      {(tileset.excludeColors ?? []).length > 0 && (
+                        <div className="exclude-colors-row">
+                          {tileset.excludeColors.map((hex, i) => (
+                            <div key={i} className="exclude-swatch">
+                              <input type="color" value={hex}
+                                onChange={(e) => updateExcludeColor(tileset.id, i, e.target.value)} />
+                              <button className="swatch-remove" onClick={() => removeExcludeColor(tileset.id, i)}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button className="btn-small" onClick={() => addExcludeColor(tileset.id)}>+ Exclude</button>
                     </div>
                   ))}
                 </div>
@@ -213,12 +245,9 @@ function App() {
               </div>
 
               <div className="control-group">
-                <label>Exclude Color</label>
-                <input type="color" value={excludeColor || '#00ff00'}
-                  onChange={(e) => setExcludeColor(e.target.value)} />
-                {excludeColor && (
-                  <button className="btn-small" onClick={() => setExcludeColor('')}>Clear</button>
-                )}
+                <label>Exclude Tolerance: {excludeTolerance}</label>
+                <input type="range" min="0" max="32" value={excludeTolerance}
+                  onChange={handleChange(setExcludeTolerance)} onPointerUp={handlePointerUp} />
               </div>
 
               <div className="section-header">Background Image</div>
