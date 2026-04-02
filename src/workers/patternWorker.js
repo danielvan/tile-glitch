@@ -6,6 +6,7 @@ import {
   I_FLIP, I_OPACITY, I_CIRCULAR,
   I_PHASE, I_SPEED, I_DIRECTION,
   I_COLOR_R, I_COLOR_G, I_COLOR_B, I_COLOR_A,
+  I_GRID_U, I_GRID_V,
 } from '../webgl/constants.js';
 
 // Cached static data (set once per tileset change)
@@ -191,6 +192,10 @@ function generate({
         }
         // effect 2: no visual (matches original)
       }
+
+      // Normalized grid position for mask texture sampling
+      instanceData[offset + I_GRID_U] = (col + 0.5) / cols;
+      instanceData[offset + I_GRID_V] = (row + 0.5) / rows;
     }
   }
 
