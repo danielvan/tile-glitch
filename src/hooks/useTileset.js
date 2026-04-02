@@ -1,26 +1,32 @@
 import { useEffect, useState } from 'react';
 import { TILE_SIZE } from '../webgl/constants.js';
 
-function buildExcludeFilter(img, excludeHex) {
-  if (!excludeHex) return null;
-  // Read the entire image in one getImageData call
+function buildExcludeFilter(img, excludeColors, tolerance) {
+  if (!excludeColors || excludeColors.length === 0) return null;
+
   const canvas = document.createElement('canvas');
   canvas.width  = img.width;
   canvas.height = img.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   const { data } = ctx.getImageData(0, 0, img.width, img.height);
-  const er = parseInt(excludeHex.slice(1, 3), 16);
-  const eg = parseInt(excludeHex.slice(3, 5), 16);
-  const eb = parseInt(excludeHex.slice(5, 7), 16);
 
-  // Returns true if any pixel in the 8×8 tile at (srcX, srcY) matches the exclude color
+  const targets = excludeColors.map(hex => [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ]);
+
   return (srcX, srcY) => {
     for (let ty = srcY; ty < srcY + TILE_SIZE; ty++) {
       for (let tx = srcX; tx < srcX + TILE_SIZE; tx++) {
         const i = (ty * img.width + tx) * 4;
-        if (Math.abs(data[i] - er) < 20 && Math.abs(data[i+1] - eg) < 20 && Math.abs(data[i+2] - eb) < 20) {
-          return true;
+        for (const [er, eg, eb] of targets) {
+          if (
+            Math.abs(data[i]     - er) <= tolerance &&
+            Math.abs(data[i + 1] - eg) <= tolerance &&
+            Math.abs(data[i + 2] - eb) <= tolerance
+          ) return true;
         }
       }
     }
@@ -45,7 +51,7 @@ function buildExcludeFilter(img, excludeHex) {
  *   tilesetMeta: Array<{ id, tilesPerRow }>,
  * }
  */
-export function useTileset(tilesetList, excludeColor) {
+export function useTileset(tilesetList, excludeTolerance) {
   const [atlasData, setAtlasData] = useState(null);
 
   useEffect(() => {
@@ -60,7 +66,7 @@ export function useTileset(tilesetList, excludeColor) {
       const img = tileset.img;
       const cols = Math.floor(img.width / TILE_SIZE);
       const rows = Math.floor(img.height / TILE_SIZE);
-      const shouldExclude = buildExcludeFilter(img, excludeColor); // one read per tileset
+      const shouldExclude = buildExcludeFilter(img, tileset.excludeColors ?? [], excludeTolerance);
 
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
@@ -124,7 +130,7 @@ export function useTileset(tilesetList, excludeColor) {
 
     if (import.meta.env.DEV) console.log(`Atlas: ${atlasWidth}×${atlasHeight}px, ${tiles.length} tiles`);
     setAtlasData({ atlasCanvas, atlasWidth, atlasHeight, tiles, uvData, tileMap, tilesetMeta });
-  }, [tilesetList, excludeColor]);
+  }, [tilesetList, excludeTolerance]);
 
   return atlasData;
 }
