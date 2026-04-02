@@ -31,6 +31,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
     const gl = canvasRef.current?.getContext('webgl2');
     if (!gl || !maskArrayRef.current || !maskTextureRef.current) return;
     const { cols: c, rows: r } = oldDimsRef.current;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.bindTexture(gl.TEXTURE_2D, maskTextureRef.current);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, c, r, 0, gl.RED, gl.UNSIGNED_BYTE, maskArrayRef.current);
     setMaskVersion(v => v + 1);
@@ -71,6 +72,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
       maskTextureRef.current = tex;
     }
 
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.bindTexture(gl.TEXTURE_2D, maskTextureRef.current);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, newMask);
     setMaskVersion(v => v + 1);
