@@ -1,11 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import * as twgl from 'twgl.js';
-import { VERTEX_SHADER, FRAGMENT_SHADER } from '../webgl/shaders.js';
-import { FLOATS_PER_INSTANCE } from '../webgl/constants.js';
+import { VERTEX_SHADER, FRAGMENT_SHADER, BG_VERTEX_SHADER, BG_FRAGMENT_SHADER } from '../webgl/shaders.js';
+import { FLOATS_PER_INSTANCE, TILE_SIZE } from '../webgl/constants.js';
 
 function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// Compute UV scale + offset for cover-fit of an image in a canvas
+function computeCoverUVs(canvasW, canvasH, imgW, imgH) {
+  const ca = canvasW / canvasH;
+  const ia = imgW   / imgH;
+  let scaleU, scaleV, offsetU, offsetV;
+  if (ca > ia) {
+    scaleU = 1.0;       scaleV  = ia / ca;
+    offsetU = 0.0;      offsetV = (1.0 - scaleV)  / 2.0;
+  } else {
+    scaleU = ca / ia;   scaleV  = 1.0;
+    offsetU = (1.0 - scaleU) / 2.0;  offsetV = 0.0;
+  }
+  return [scaleU, scaleV, offsetU, offsetV];
 }
 
 /**
@@ -14,41 +29,52 @@ function hexToRgb(hex) {
  * @param canvasRef       - ref to the <canvas> element
  * @param atlasData       - from useTileset (provides atlasCanvas)
  * @param instanceData    - Float32Array from usePatternGenerator
- * @param renderSettings  - { backgroundColor, scale, canvasSize, animateMasks, animationSpeed }
+ * @param renderSettings  - {
+ *   backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
+ *   bgImage,         // HTMLImageElement | null
+ *   maskTextureRef,  // React ref holding WebGLTexture | null
+ *   maskVersion,     // number — increments when mask GPU data changes
+ * }
  *
  * Returns fps: number | null (null when animation is off)
  */
 export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSettings) {
-  const { backgroundColor, scale, canvasSize, animateMasks, animationSpeed } = renderSettings;
+  const {
+    backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
+    bgImage, maskTextureRef, maskVersion,
+  } = renderSettings;
 
-  const glRef           = useRef(null);
-  const programInfoRef  = useRef(null);
-  const vaoRef          = useRef(null);
-  const instanceBufRef  = useRef(null);
-  const atlasTexRef     = useRef(null);
-  const instanceCountRef = useRef(0);
-  const rafRef          = useRef(null);
-  const [fps, setFps]   = useState(null);
+  const glRef              = useRef(null);
+  const programInfoRef     = useRef(null);
+  const vaoRef             = useRef(null);
+  const instanceBufRef     = useRef(null);
+  const atlasTexRef        = useRef(null);
+  const dummyMaskTexRef    = useRef(null);
+  const bgProgramInfoRef   = useRef(null);
+  const bgVaoRef           = useRef(null);
+  const bgTexRef           = useRef(null);
+  const instanceCountRef   = useRef(0);
+  const rafRef             = useRef(null);
+  const [fps, setFps]      = useState(null);
 
-  // --- Initialize WebGL once ---
+  // --- Initialize tile WebGL program + VAO once ---
   useEffect(() => {
     const canvas = canvasRef.current;
     const gl = canvas.getContext('webgl2', {
       alpha: false,
-      preserveDrawingBuffer: true,  // needed for export PNG
+      preserveDrawingBuffer: true,
     });
     if (!gl) { console.error('WebGL 2 not supported'); return; }
     glRef.current = gl;
 
-    // Compile shaders via twgl
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // --- Tile program ---
     const programInfo = twgl.createProgramInfo(gl, [VERTEX_SHADER, FRAGMENT_SHADER]);
     programInfoRef.current = programInfo;
     const prog = programInfo.program;
 
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-    // Quad geometry: 6 vertices (2 triangles), positions in [-0.5, 0.5]
     const quadVerts = new Float32Array([
       -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
       -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
@@ -57,25 +83,21 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
 
-    // Instance buffer (filled later)
     const instBuf = gl.createBuffer();
     instanceBufRef.current = instBuf;
 
-    // VAO
     const vao = gl.createVertexArray();
     vaoRef.current = vao;
     gl.bindVertexArray(vao);
 
-    // --- Quad position attribute (per-vertex, divisor 0) ---
     const quadPosLoc = gl.getAttribLocation(prog, 'aQuadPos');
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.enableVertexAttribArray(quadPosLoc);
     gl.vertexAttribPointer(quadPosLoc, 2, gl.FLOAT, false, 0, 0);
     gl.vertexAttribDivisor(quadPosLoc, 0);
 
-    // --- Per-instance attributes (divisor 1) ---
     gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
-    const stride = FLOATS_PER_INSTANCE * 4;
+    const stride = FLOATS_PER_INSTANCE * 4;  // 72 bytes
 
     const instAttr = (name, size, floatOffset) => {
       const loc = gl.getAttribLocation(prog, name);
@@ -93,6 +115,40 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     instAttr('aSpeed',     1, 10);
     instAttr('aDirection', 1, 11);
     instAttr('aColor',     4, 12);
+    instAttr('aGridPos',   2, 16);
+
+    gl.bindVertexArray(null);
+
+    // Dummy 1×1 R8 mask texture (used when uHasMask=false)
+    const dummyTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, dummyTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    dummyMaskTexRef.current = dummyTex;
+
+    // --- BG program ---
+    const bgProgramInfo = twgl.createProgramInfo(gl, [BG_VERTEX_SHADER, BG_FRAGMENT_SHADER]);
+    bgProgramInfoRef.current = bgProgramInfo;
+
+    const bgQuadVerts = new Float32Array([
+      -1, -1,  1, -1, -1,  1,
+      -1,  1,  1, -1,  1,  1,
+    ]);
+    const bgQuadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bgQuadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, bgQuadVerts, gl.STATIC_DRAW);
+
+    const bgVao = gl.createVertexArray();
+    bgVaoRef.current = bgVao;
+    gl.bindVertexArray(bgVao);
+
+    const bgPosLoc = gl.getAttribLocation(bgProgramInfo.program, 'aPos');
+    gl.enableVertexAttribArray(bgPosLoc);
+    gl.vertexAttribPointer(bgPosLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(bgPosLoc, 0);
 
     gl.bindVertexArray(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,8 +157,6 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
   useEffect(() => {
     const gl = glRef.current;
     if (!gl || !atlasData) return;
-
-    // Delete previous texture if any
     if (atlasTexRef.current) gl.deleteTexture(atlasTexRef.current);
 
     const tex = gl.createTexture();
@@ -115,11 +169,26 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     atlasTexRef.current = tex;
   }, [atlasData]);
 
+  // --- Upload background image texture when bgImage changes ---
+  useEffect(() => {
+    const gl = glRef.current;
+    if (bgTexRef.current) { gl?.deleteTexture(bgTexRef.current); bgTexRef.current = null; }
+    if (!gl || !bgImage) return;
+
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bgImage);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    bgTexRef.current = tex;
+  }, [bgImage]);
+
   // --- Upload instance data when it changes ---
   useEffect(() => {
     const gl = glRef.current;
     if (!gl || !instanceData) return;
-
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBufRef.current);
     gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.DYNAMIC_DRAW);
     instanceCountRef.current = instanceData.length / FLOATS_PER_INSTANCE;
@@ -136,14 +205,36 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
       gl.viewport(0, 0, canvasSize.width, canvasSize.height);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
+      // --- Background pass ---
+      if (bgTexRef.current && bgProgramInfoRef.current && bgImage) {
+        gl.useProgram(bgProgramInfoRef.current.program);
+        const [su, sv, ou, ov] = computeCoverUVs(
+          canvasSize.width, canvasSize.height,
+          bgImage.width, bgImage.height
+        );
+        twgl.setUniforms(bgProgramInfoRef.current, {
+          uBgImage:    bgTexRef.current,
+          uBgUVScale:  [su, sv],
+          uBgUVOffset: [ou, ov],
+        });
+        gl.bindVertexArray(bgVaoRef.current);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.bindVertexArray(null);
+      }
+
       if (!atlasTexRef.current || instanceCountRef.current === 0) return;
 
-      gl.useProgram(programInfoRef.current.program);
+      // --- Tile pass ---
+      const activeMaskTex = maskTextureRef?.current ?? dummyMaskTexRef.current;
+      const hasMask       = !!(maskTextureRef?.current);
 
+      gl.useProgram(programInfoRef.current.program);
       twgl.setUniforms(programInfoRef.current, {
         uCanvasSize: [canvasSize.width, canvasSize.height],
-        uTileSize:   8 * scale,
+        uTileSize:   TILE_SIZE * scale,
         uAtlas:      atlasTexRef.current,
+        uMask:       activeMaskTex,
+        uHasMask:    hasMask,
         uTime:       timestamp ?? 0,
         uBaseSpeed:  (animationSpeed / 1000) * 0.1,
         uAnimate:    animateMasks,
@@ -155,35 +246,30 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     };
 
     if (!animateMasks) {
-      // Single static draw
       draw(0);
       setFps(null);
       return;
     }
 
-    // Animation loop with FPS counter
-    let frameCount   = 0;
-    let lastFpsTime  = performance.now();
+    let frameCount  = 0;
+    let lastFpsTime = performance.now();
 
     const loop = (timestamp) => {
       draw(timestamp);
       frameCount++;
-
       const now = performance.now();
       if (now - lastFpsTime >= 1000) {
         setFps(frameCount);
         frameCount  = 0;
         lastFpsTime = now;
       }
-
       rafRef.current = requestAnimationFrame(loop);
     };
 
     rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [animateMasks, animationSpeed, backgroundColor, canvasSize, scale, instanceData]);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [animateMasks, animationSpeed, backgroundColor, canvasSize, scale,
+      instanceData, bgImage, maskVersion, maskTextureRef]);
 
   return fps;
 }
