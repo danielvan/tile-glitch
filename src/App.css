@@ -333,3 +333,38 @@ input[type="file"] {
 .undo-redo-row button {
   flex: 1;
 }
+
+.exclude-colors-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+}
+
+.exclude-swatch {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.exclude-swatch input[type="color"] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.swatch-remove {
+  padding: 0 0.25rem;
+  font-size: 10px;
+  background: var(--danger);
+  color: var(--danger-text);
+  border: 1px solid rgba(255, 50, 50, 0.4);
+  border-radius: 3px;
+  line-height: 1.4;
+  min-width: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
