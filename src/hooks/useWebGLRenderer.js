@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as twgl from 'twgl.js';
-import { VERTEX_SHADER, FRAGMENT_SHADER, BG_VERTEX_SHADER, BG_FRAGMENT_SHADER } from '../webgl/shaders.js';
+import { VERTEX_SHADER, FRAGMENT_SHADER, BG_VERTEX_SHADER, BG_FRAGMENT_SHADER, POST_VERTEX_SHADER, POST_FRAGMENT_SHADER } from '../webgl/shaders.js';
 import { FLOATS_PER_INSTANCE, TILE_SIZE } from '../webgl/constants.js';
 
 function hexToRgb(hex) {
@@ -42,7 +42,9 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
   const {
     backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
     bgImage, maskTextureRef, maskVersion,
+    effects,
   } = renderSettings;
+  const { chroma = 0, scanlines = 0, barrel = 0, vignette = 0, grain = 0, crtMask = 0 } = effects ?? {};
 
   const glRef              = useRef(null);
   const programInfoRef     = useRef(null);
@@ -55,6 +57,10 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
   const bgTexRef           = useRef(null);
   const instanceCountRef   = useRef(0);
   const rafRef             = useRef(null);
+  const fboRef             = useRef(null);
+  const fboTexRef          = useRef(null);
+  const postProgramInfoRef = useRef(null);
+  const postVaoRef         = useRef(null);
   const [fps, setFps]      = useState(null);
 
   // --- Initialize tile WebGL program + VAO once ---
@@ -151,7 +157,52 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     gl.vertexAttribDivisor(bgPosLoc, 0);
 
     gl.bindVertexArray(null);
+
+    // --- FBO (created here; texture attached in the canvasSize resize effect) ---
+    fboRef.current = gl.createFramebuffer();
+
+    // --- Post-processing program ---
+    const postProgramInfo = twgl.createProgramInfo(gl, [POST_VERTEX_SHADER, POST_FRAGMENT_SHADER]);
+    postProgramInfoRef.current = postProgramInfo;
+
+    const postQuadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, postQuadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,  1, -1, -1,  1,
+      -1,  1,  1, -1,  1,  1,
+    ]), gl.STATIC_DRAW);
+
+    const postVao = gl.createVertexArray();
+    postVaoRef.current = postVao;
+    gl.bindVertexArray(postVao);
+    const postPosLoc = gl.getAttribLocation(postProgramInfo.program, 'aPos');
+    gl.enableVertexAttribArray(postPosLoc);
+    gl.vertexAttribPointer(postPosLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(postPosLoc, 0);
+    gl.bindVertexArray(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Resize FBO texture when canvas size changes ---
+  useEffect(() => {
+    const gl = glRef.current;
+    if (!gl || !fboRef.current) return;
+
+    if (fboTexRef.current) gl.deleteTexture(fboTexRef.current);
+
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvasSize.width, canvasSize.height,
+      0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    fboTexRef.current = tex;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fboRef.current);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }, [canvasSize]);
 
   // --- Upload atlas texture when atlasData changes ---
   useEffect(() => {
@@ -200,6 +251,10 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     if (!gl || !programInfoRef.current) return;
 
     const draw = (timestamp) => {
+      if (!fboRef.current || !fboTexRef.current || !postProgramInfoRef.current) return;
+
+      // --- Render scene to FBO ---
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fboRef.current);
       const [r, g, b] = hexToRgb(backgroundColor);
       gl.clearColor(r / 255, g / 255, b / 255, 1);
       gl.viewport(0, 0, canvasSize.width, canvasSize.height);
@@ -243,6 +298,26 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
       gl.bindVertexArray(vaoRef.current);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCountRef.current);
       gl.bindVertexArray(null);
+
+      // --- Post-processing pass: FBO texture → canvas ---
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvasSize.width, canvasSize.height);
+
+      gl.useProgram(postProgramInfoRef.current.program);
+      twgl.setUniforms(postProgramInfoRef.current, {
+        uScene:      fboTexRef.current,
+        uResolution: [canvasSize.width, canvasSize.height],
+        uTime:       timestamp ?? 0,
+        uChroma:     chroma     / 100,
+        uScanlines:  scanlines  / 100,
+        uBarrel:     barrel     / 100,
+        uVignette:   vignette   / 100,
+        uGrain:      grain      / 100,
+        uCRTMask:    crtMask    / 100,
+      });
+      gl.bindVertexArray(postVaoRef.current);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.bindVertexArray(null);
     };
 
     if (!animateMasks) {
@@ -269,7 +344,8 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     rafRef.current = requestAnimationFrame(loop);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [animateMasks, animationSpeed, backgroundColor, canvasSize, scale,
-      instanceData, bgImage, maskVersion, maskTextureRef]);
+      instanceData, bgImage, maskVersion, maskTextureRef,
+      chroma, scanlines, barrel, vignette, grain, crtMask]);
 
   return fps;
 }
