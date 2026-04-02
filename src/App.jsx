@@ -1,56 +1,50 @@
-import { useState, useRef, useEffect } from 'react';
+// src/App.jsx
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import './App.css';
+import { useTileset }           from './hooks/useTileset.js';
+import { usePatternGenerator }  from './hooks/usePatternGenerator.js';
+import { useWebGLRenderer }     from './hooks/useWebGLRenderer.js';
+import { TILE_SIZE }            from './webgl/constants.js';
 
 function App() {
-  const [tilesets, setTilesets] = useState([]);
-  const [tiles, setTiles] = useState([]);
-  const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
-  const [chaos, setChaos] = useState(50);
-  const [coherence, setCoherence] = useState(50);
-  const [normalize, setNormalize] = useState(50);
-  const [scale, setScale] = useState(1);
-  const [excludeColor, setExcludeColor] = useState('');
-  const [tilesetWeights, setTilesetWeights] = useState({});
-  const [cycleTiles, setCycleTiles] = useState(false);
+  const [tilesets, setTilesets]                   = useState([]);
+  const [canvasSize, setCanvasSize]               = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [chaos, setChaos]                         = useState(50);
+  const [coherence, setCoherence]                 = useState(50);
+  const [normalize, setNormalize]                 = useState(50);
+  const [scale, setScale]                         = useState(1);
+  const [excludeColor, setExcludeColor]           = useState('');
+  const [tilesetWeights, setTilesetWeights]       = useState({});
+  const [cycleTiles, setCycleTiles]               = useState(false);
   const [circularMaskChance, setCircularMaskChance] = useState(0);
-  const [disappearChance, setDisappearChance] = useState(0);
-  const [backgroundColor, setBackgroundColor] = useState('#000000');
-  const [animateMasks, setAnimateMasks] = useState(false);
-  const [animationSpeed, setAnimationSpeed] = useState(50);
-  const [minimizeUI, setMinimizeUI] = useState(false);
+  const [disappearChance, setDisappearChance]     = useState(0);
+  const [backgroundColor, setBackgroundColor]     = useState('#000000');
+  const [animateMasks, setAnimateMasks]           = useState(false);
+  const [animationSpeed, setAnimationSpeed]       = useState(50);
+  const [minimizeUI, setMinimizeUI]               = useState(false);
+  const [livePreview, setLivePreview]             = useState(true);
+
   const canvasRef = useRef(null);
-  const tilesetImagesRef = useRef([]);
-  const animationFrameRef = useRef(null);
-  const tileAnimationDataRef = useRef([]);
 
-  const TILE_SIZE = 8;
-
-  // Update canvas size on window resize
+  // Window resize
   useEffect(() => {
-    const handleResize = () => {
-      setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const onResize = () => setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Handle tileset upload (supports multiple files)
+  // Handle tileset upload
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
+    if (!files.length) return;
     files.forEach((file, index) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
-          // Add to tilesets array
           const newId = Date.now() + index;
           setTilesets(prev => [...prev, { id: newId, url: event.target.result, img }]);
-          setTilesetWeights(prev => ({ ...prev, [newId]: 50 })); // Default weight 50%
-          tilesetImagesRef.current.push(img);
-          sliceTilesets([...tilesetImagesRef.current]);
+          setTilesetWeights(prev => ({ ...prev, [newId]: 50 }));
         };
         img.src = event.target.result;
       };
@@ -58,475 +52,50 @@ function App() {
     });
   };
 
-  // Remove a tileset
   const removeTileset = (id) => {
-    setTilesets(prev => {
-      const filtered = prev.filter(t => t.id !== id);
-      tilesetImagesRef.current = filtered.map(t => t.img);
-      sliceTilesets(tilesetImagesRef.current);
-      return filtered;
+    setTilesets(prev => prev.filter(t => t.id !== id));
+    setTilesetWeights(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
   };
 
-  // Reusable canvas for color checking (optimization)
-  const colorCheckCanvas = useRef(null);
-  const colorCheckCtx = useRef(null);
+  // --- Hooks ---
+  const atlasData = useTileset(tilesets, excludeColor);
 
-  // Check if a tile contains excluded color (optimized)
-  const tileHasExcludedColor = (img, x, y, excludeColorHex) => {
-    if (!excludeColorHex) return false;
+  const cols = Math.floor(canvasSize.width  / (TILE_SIZE * scale));
+  const rows = Math.floor(canvasSize.height / (TILE_SIZE * scale));
 
-    // Reuse canvas instead of creating new ones
-    if (!colorCheckCanvas.current) {
-      colorCheckCanvas.current = document.createElement('canvas');
-      colorCheckCanvas.current.width = TILE_SIZE;
-      colorCheckCanvas.current.height = TILE_SIZE;
-      colorCheckCtx.current = colorCheckCanvas.current.getContext('2d', { willReadFrequently: true });
-    }
+  const settings = useMemo(() => ({
+    cols, rows,
+    scaledTileSize: TILE_SIZE * scale,
+    chaos, coherence, normalize,
+    circularMaskChance, disappearChance,
+    cycleTiles, tilesetWeights,
+  }), [cols, rows, scale, chaos, coherence, normalize, circularMaskChance, disappearChance, cycleTiles, tilesetWeights]);
 
-    const ctx = colorCheckCtx.current;
-    ctx.clearRect(0, 0, TILE_SIZE, TILE_SIZE);
-    ctx.drawImage(img, x, y, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
-    const imageData = ctx.getImageData(0, 0, TILE_SIZE, TILE_SIZE);
-    const pixels = imageData.data;
+  const { instanceData, generate } = usePatternGenerator(atlasData, settings, livePreview);
 
-    // Convert hex to RGB once
-    const r = parseInt(excludeColorHex.slice(1, 3), 16);
-    const g = parseInt(excludeColorHex.slice(3, 5), 16);
-    const b = parseInt(excludeColorHex.slice(5, 7), 16);
+  const fps = useWebGLRenderer(canvasRef, atlasData, instanceData, {
+    backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
+  });
 
-    // Check if any pixel matches (with small tolerance)
-    for (let i = 0; i < pixels.length; i += 4) {
-      const dr = Math.abs(pixels[i] - r);
-      const dg = Math.abs(pixels[i + 1] - g);
-      const db = Math.abs(pixels[i + 2] - b);
+  // Slider helpers
+  const handleChange = (setter) => (e) => setter(Number(e.target.value));
+  const handlePointerUp = useCallback(() => {
+    if (!livePreview) generate();
+  }, [livePreview, generate]);
 
-      if (dr < 20 && dg < 20 && db < 20) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  // Slice all tilesets into individual 8x8 tiles
-  const sliceTilesets = (images) => {
-    if (images.length === 0) {
-      setTiles([]);
-      return;
-    }
-
-    const allTiles = [];
-
-    images.forEach((img, imgIndex) => {
-      const cols = Math.floor(img.width / TILE_SIZE);
-      const rows = Math.floor(img.height / TILE_SIZE);
-
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const tile = {
-            x: x * TILE_SIZE,
-            y: y * TILE_SIZE,
-            imageIndex: imgIndex
-          };
-
-          // Skip tiles with excluded color
-          if (!tileHasExcludedColor(img, tile.x, tile.y, excludeColor)) {
-            allTiles.push(tile);
-          }
-        }
-      }
-    });
-
-    setTiles(allTiles);
-    console.log(`Sliced ${allTiles.length} tiles from ${images.length} tileset(s)`);
-  };
-
-  // Select weighted random tile based on tileset weights (optimized)
-  const selectWeightedTile = () => {
-    // If no weights or all equal, just pick random
-    if (Object.keys(tilesetWeights).length === 0 || tiles.length === 0) {
-      return tiles[Math.floor(Math.random() * tiles.length)];
-    }
-
-    // Use probability-based selection instead of creating large arrays
-    let totalWeight = 0;
-    const tileWeights = tiles.map(tile => {
-      const tilesetId = tilesets[tile.imageIndex]?.id;
-      const weight = tilesetWeights[tilesetId] || 50;
-      totalWeight += weight;
-      return weight;
-    });
-
-    let random = Math.random() * totalWeight;
-    for (let i = 0; i < tiles.length; i++) {
-      random -= tileWeights[i];
-      if (random <= 0) {
-        return tiles[i];
-      }
-    }
-
-    return tiles[tiles.length - 1];
-  };
-
-  // Generate pattern with intelligent tile connections
-  const generatePattern = () => {
-    if (tilesetImagesRef.current.length === 0 || tiles.length === 0) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-
-    // Fill with background color
-    ctx.fillStyle = backgroundColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const scaledTileSize = TILE_SIZE * scale;
-    const cols = Math.floor(canvasSize.width / scaledTileSize);
-    const rows = Math.floor(canvasSize.height / scaledTileSize);
-
-    // Create a grid to store placed tiles
-    const grid = Array(rows).fill(null).map(() => Array(cols).fill(null));
-
-    // Initialize animation data for each tile
-    const animationData = [];
-
-    // Tile pool for cycling mode
-    let tilePool = [];
-    if (cycleTiles) {
-      tilePool = [...tiles];
-      // Shuffle the pool
-      for (let i = tilePool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tilePool[i], tilePool[j]] = [tilePool[j], tilePool[i]];
-      }
-    }
-    let poolIndex = 0;
-
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        let selectedTile;
-
-        // Collect all neighbors (up to 4)
-        const neighbors = [];
-        if (x > 0 && grid[y][x - 1]) neighbors.push({ tile: grid[y][x - 1], weight: 1 });
-        if (y > 0 && grid[y - 1][x]) neighbors.push({ tile: grid[y - 1][x], weight: 1 });
-        if (x > 1 && grid[y][x - 2]) neighbors.push({ tile: grid[y][x - 2], weight: 0.5 }); // further neighbors have less influence
-        if (y > 1 && grid[y - 2][x]) neighbors.push({ tile: grid[y - 2][x], weight: 0.5 });
-
-        // Connection chance increases with normalize
-        const connectionChance = coherence + (normalize * 0.3); // normalize boosts connection strength
-
-        if (neighbors.length > 0 && Math.random() * 100 < connectionChance) {
-          // Pick a neighbor weighted by proximity
-          const totalWeight = neighbors.reduce((sum, n) => sum + n.weight, 0);
-          let random = Math.random() * totalWeight;
-          let neighborTile = neighbors[0].tile;
-
-          for (const n of neighbors) {
-            random -= n.weight;
-            if (random <= 0) {
-              neighborTile = n.tile;
-              break;
-            }
-          }
-
-          // Try to find adjacent tiles in the tileset
-          const neighborImg = tilesetImagesRef.current[neighborTile.imageIndex];
-          const tilesPerRow = Math.floor(neighborImg.width / TILE_SIZE);
-          const neighborIndex = tiles.findIndex(t => t.x === neighborTile.x && t.y === neighborTile.y && t.imageIndex === neighborTile.imageIndex);
-
-          if (neighborIndex !== -1) {
-            // Higher normalize = more repetition of same/nearby tiles
-            const sameChance = normalize; // 0-100%
-
-            if (Math.random() * 100 < sameChance) {
-              // Use same tile or immediate neighbor
-              const adjacentOffsets = [0, 0, 0, -1, 1, -tilesPerRow, tilesPerRow]; // heavily favor same tile
-              const offset = adjacentOffsets[Math.floor(Math.random() * adjacentOffsets.length)];
-              const adjacentIndex = neighborIndex + offset;
-
-              if (adjacentIndex >= 0 && adjacentIndex < tiles.length && tiles[adjacentIndex].imageIndex === neighborTile.imageIndex) {
-                selectedTile = tiles[adjacentIndex];
-              } else {
-                selectedTile = neighborTile; // fallback to same tile
-              }
-            } else {
-              // Pick from nearby area (creates variation within regions)
-              const radius = Math.floor((100 - normalize) / 25) + 1;
-              const offsets = [];
-              for (let dy = -radius; dy <= radius; dy++) {
-                for (let dx = -radius; dx <= radius; dx++) {
-                  offsets.push(dy * tilesPerRow + dx);
-                }
-              }
-              const offset = offsets[Math.floor(Math.random() * offsets.length)];
-              const adjacentIndex = neighborIndex + offset;
-
-              if (adjacentIndex >= 0 && adjacentIndex < tiles.length && tiles[adjacentIndex].imageIndex === neighborTile.imageIndex) {
-                selectedTile = tiles[adjacentIndex];
-              } else {
-                selectedTile = neighborTile;
-              }
-            }
-          } else {
-            selectedTile = neighborTile;
-          }
-        } else {
-          // No neighbors or random choice
-          if (cycleTiles) {
-            // Use tile from pool, reshuffle when exhausted
-            selectedTile = tilePool[poolIndex];
-            poolIndex++;
-            if (poolIndex >= tilePool.length) {
-              poolIndex = 0;
-              // Reshuffle for next cycle
-              for (let i = tilePool.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [tilePool[i], tilePool[j]] = [tilePool[j], tilePool[i]];
-              }
-            }
-          } else {
-            // Weighted selection
-            selectedTile = selectWeightedTile();
-          }
-        }
-
-        // Store in grid for neighbor checking
-        grid[y][x] = selectedTile;
-
-        // Check if tile should disappear
-        const shouldDisappear = Math.random() * 100 < disappearChance;
-
-        // Check if tile should have circular mask
-        const useCircularMask = Math.random() * 100 < circularMaskChance;
-
-        // Store animation data for this tile
-        animationData.push({
-          x: x * scaledTileSize,
-          y: y * scaledTileSize,
-          selectedTile,
-          shouldDisappear,
-          useCircularMask,
-          // Random animation properties
-          phase: Math.random() * Math.PI * 2, // Random starting phase
-          speed: 0.5 + Math.random() * 2, // Speed multiplier (0.5x to 2.5x)
-          direction: Math.random() > 0.5 ? 1 : -1, // 1 for grow-shrink, -1 for shrink-grow
-        });
-
-        if (shouldDisappear) {
-          // Skip drawing this tile (background color will show)
-          continue;
-        }
-
-        // Draw tile from the correct tileset image
-        const sourceImage = tilesetImagesRef.current[selectedTile.imageIndex];
-
-        if (useCircularMask) {
-          // Save context and apply circular clipping mask
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(
-            x * scaledTileSize + scaledTileSize / 2,
-            y * scaledTileSize + scaledTileSize / 2,
-            scaledTileSize / 2,
-            0,
-            Math.PI * 2
-          );
-          ctx.clip();
-          ctx.drawImage(
-            sourceImage,
-            selectedTile.x, selectedTile.y,
-            TILE_SIZE, TILE_SIZE,
-            x * scaledTileSize, y * scaledTileSize,
-            scaledTileSize, scaledTileSize
-          );
-          ctx.restore();
-        } else {
-          // Draw normally
-          ctx.drawImage(
-            sourceImage,
-            selectedTile.x, selectedTile.y,
-            TILE_SIZE, TILE_SIZE,
-            x * scaledTileSize, y * scaledTileSize,
-            scaledTileSize, scaledTileSize
-          );
-        }
-
-        // Apply glitch effects based on chaos
-        if (Math.random() * 100 < chaos / 2) {
-          const effect = Math.floor(Math.random() * 3);
-
-          if (effect === 0) {
-            // Horizontal flip
-            ctx.save();
-            ctx.scale(-1, 1);
-            ctx.drawImage(
-              sourceImage,
-              selectedTile.x, selectedTile.y,
-              TILE_SIZE, TILE_SIZE,
-              -(x * scaledTileSize + scaledTileSize), y * scaledTileSize,
-              scaledTileSize, scaledTileSize
-            );
-            ctx.restore();
-          } else if (effect === 1) {
-            // Add color overlay
-            ctx.fillStyle = `rgba(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255}, 0.3)`;
-            ctx.fillRect(x * scaledTileSize, y * scaledTileSize, scaledTileSize, scaledTileSize);
-          }
-        }
-      }
-    }
-
-    // Store animation data
-    tileAnimationDataRef.current = animationData;
-  };
-
-  // Animation loop for masks
-  const animate = (timestamp) => {
-    if (!animateMasks || tileAnimationDataRef.current.length === 0) {
-      animationFrameRef.current = null;
-      return;
-    }
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const scaledTileSize = TILE_SIZE * scale;
-
-    // Fill with background color
-    ctx.fillStyle = backgroundColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Base animation speed (frames per second converted to radians per frame)
-    const baseSpeed = (animationSpeed / 1000) * 0.1;
-
-    // Draw each tile
-    tileAnimationDataRef.current.forEach((tileData) => {
-      if (tileData.shouldDisappear) return;
-
-      const { x, y, selectedTile, useCircularMask, phase, speed, direction } = tileData;
-      const sourceImage = tilesetImagesRef.current[selectedTile.imageIndex];
-
-      if (useCircularMask && animateMasks) {
-        // Calculate animated radius (0 to 1 scale)
-        const time = (timestamp * baseSpeed * speed + phase) * direction;
-        const scale01 = (Math.sin(time) + 1) / 2; // Oscillates between 0 and 1
-        const radius = (scaledTileSize / 2) * scale01;
-
-        if (radius > 0.5) {
-          // Only draw if radius is meaningful
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(
-            x + scaledTileSize / 2,
-            y + scaledTileSize / 2,
-            radius,
-            0,
-            Math.PI * 2
-          );
-          ctx.clip();
-          ctx.drawImage(
-            sourceImage,
-            selectedTile.x, selectedTile.y,
-            TILE_SIZE, TILE_SIZE,
-            x, y,
-            scaledTileSize, scaledTileSize
-          );
-          ctx.restore();
-        }
-      } else if (useCircularMask) {
-        // Static circular mask (no animation)
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(
-          x + scaledTileSize / 2,
-          y + scaledTileSize / 2,
-          scaledTileSize / 2,
-          0,
-          Math.PI * 2
-        );
-        ctx.clip();
-        ctx.drawImage(
-          sourceImage,
-          selectedTile.x, selectedTile.y,
-          TILE_SIZE, TILE_SIZE,
-          x, y,
-          scaledTileSize, scaledTileSize
-        );
-        ctx.restore();
-      } else if (animateMasks) {
-        // Animate opacity for non-circular tiles
-        const time = (timestamp * baseSpeed * speed + phase) * direction;
-        const opacity = (Math.sin(time) + 1) / 2; // Oscillates between 0 and 1
-
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        ctx.drawImage(
-          sourceImage,
-          selectedTile.x, selectedTile.y,
-          TILE_SIZE, TILE_SIZE,
-          x, y,
-          scaledTileSize, scaledTileSize
-        );
-        ctx.restore();
-      } else {
-        // Normal tile (no animation)
-        ctx.drawImage(
-          sourceImage,
-          selectedTile.x, selectedTile.y,
-          TILE_SIZE, TILE_SIZE,
-          x, y,
-          scaledTileSize, scaledTileSize
-        );
-      }
-    });
-
-    animationFrameRef.current = requestAnimationFrame(animate);
-  };
-
-  // Start/stop animation
-  useEffect(() => {
-    if (animateMasks && tileAnimationDataRef.current.length > 0) {
-      animationFrameRef.current = requestAnimationFrame(animate);
-    } else {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-      // Redraw static pattern
-      if (tiles.length > 0) {
-        generatePattern();
-      }
-    }
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [animateMasks, animationSpeed, backgroundColor]);
-
-  // Export canvas as PNG
+  // Export PNG (works with WebGL canvas + preserveDrawingBuffer)
   const exportPattern = () => {
-    const canvas = canvasRef.current;
     const link = document.createElement('a');
     link.download = `tile-glitch-${Date.now()}.png`;
-    link.href = canvas.toDataURL();
+    link.href = canvasRef.current.toDataURL();
     link.click();
   };
 
-  // Re-slice tiles when excluded color changes
-  useEffect(() => {
-    if (tilesetImagesRef.current.length > 0) {
-      sliceTilesets(tilesetImagesRef.current);
-    }
-  }, [excludeColor]);
-
-  // Auto-generate only when tiles or canvas size changes (not on every parameter change)
-  useEffect(() => {
-    if (tiles.length > 0) {
-      generatePattern();
-    }
-  }, [tiles, scale, canvasSize]);
+  const tileCount = atlasData?.tiles.length ?? 0;
 
   return (
     <div className="app">
@@ -540,194 +109,157 @@ function App() {
           <button
             className="minimize-btn"
             onClick={() => setMinimizeUI(!minimizeUI)}
-            title={minimizeUI ? "Show controls" : "Hide controls"}
+            title={minimizeUI ? 'Show controls' : 'Hide controls'}
           >
             {minimizeUI ? '▼' : '▲'}
           </button>
 
           {!minimizeUI && (
             <>
-          <div className="control-group">
-            <label>Upload Tileset(s)</label>
-            <input type="file" accept="image/*" multiple onChange={handleFileUpload} />
-          </div>
+              <div className="control-group">
+                <label>Upload Tileset(s)</label>
+                <input type="file" accept="image/*" multiple onChange={handleFileUpload} />
+              </div>
 
-          {tilesets.length > 0 && (
-            <div className="tilesets-list">
-              {tilesets.map((tileset, index) => (
-                <div key={tileset.id} className="tileset-item">
-                  <div className="tileset-header">
-                    <span>Tileset {index + 1}</span>
-                    <button onClick={() => removeTileset(tileset.id)} className="remove-btn">
-                      ✕
-                    </button>
-                  </div>
-                  <div className="tileset-weight">
-                    <label>Weight: {tilesetWeights[tileset.id] || 50}%</label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={tilesetWeights[tileset.id] || 50}
-                      onChange={(e) => setTilesetWeights(prev => ({
-                        ...prev,
-                        [tileset.id]: Number(e.target.value)
-                      }))}
-                    />
-                  </div>
+              {tilesets.length > 0 && (
+                <div className="tilesets-list">
+                  {tilesets.map((tileset, index) => (
+                    <div key={tileset.id} className="tileset-item">
+                      <div className="tileset-header">
+                        <span>Tileset {index + 1}</span>
+                        <button onClick={() => removeTileset(tileset.id)} className="remove-btn">✕</button>
+                      </div>
+                      <div className="tileset-weight">
+                        <label>Weight: {tilesetWeights[tileset.id] || 50}%</label>
+                        <input
+                          type="range" min="0" max="100"
+                          value={tilesetWeights[tileset.id] || 50}
+                          onChange={(e) => setTilesetWeights(prev => ({ ...prev, [tileset.id]: Number(e.target.value) }))}
+                          onPointerUp={handlePointerUp}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
 
-          <div className="control-group">
-            <label>Chaos: {chaos}%</label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={chaos}
-              onChange={(e) => setChaos(Number(e.target.value))}
-            />
-          </div>
+              <div className="control-group">
+                <label>Chaos: {chaos}%</label>
+                <input type="range" min="0" max="100" value={chaos}
+                  onChange={handleChange(setChaos)} onPointerUp={handlePointerUp} />
+              </div>
 
-          <div className="control-group">
-            <label>Connection: {coherence}%</label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={coherence}
-              onChange={(e) => setCoherence(Number(e.target.value))}
-            />
-          </div>
+              <div className="control-group">
+                <label>Connection: {coherence}%</label>
+                <input type="range" min="0" max="100" value={coherence}
+                  onChange={handleChange(setCoherence)} onPointerUp={handlePointerUp} />
+              </div>
 
-          <div className="control-group">
-            <label>Scale: {scale}x</label>
-            <input
-              type="range"
-              min="1"
-              max="4"
-              step="1"
-              value={scale}
-              onChange={(e) => setScale(Number(e.target.value))}
-            />
-          </div>
+              <div className="control-group">
+                <label>Scale: {scale}x</label>
+                <input type="range" min="1" max="4" step="1" value={scale}
+                  onChange={handleChange(setScale)} onPointerUp={handlePointerUp} />
+              </div>
 
-          <div className="control-group">
-            <label>Normalize: {normalize}%</label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={normalize}
-              onChange={(e) => setNormalize(Number(e.target.value))}
-            />
-          </div>
+              <div className="control-group">
+                <label>Normalize: {normalize}%</label>
+                <input type="range" min="0" max="100" value={normalize}
+                  onChange={handleChange(setNormalize)} onPointerUp={handlePointerUp} />
+              </div>
 
-          <div className="control-group">
-            <label>Circular Mask: {circularMaskChance}%</label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={circularMaskChance}
-              onChange={(e) => setCircularMaskChance(Number(e.target.value))}
-            />
-          </div>
+              <div className="control-group">
+                <label>Circular Mask: {circularMaskChance}%</label>
+                <input type="range" min="0" max="100" value={circularMaskChance}
+                  onChange={handleChange(setCircularMaskChance)} onPointerUp={handlePointerUp} />
+              </div>
 
-          <div className="control-group checkbox">
-            <label>
-              <input
-                type="checkbox"
-                checked={animateMasks}
-                onChange={(e) => setAnimateMasks(e.target.checked)}
-              />
-              Animate Masks
-            </label>
-          </div>
+              <div className="control-group checkbox">
+                <label>
+                  <input type="checkbox" checked={animateMasks}
+                    onChange={(e) => setAnimateMasks(e.target.checked)} />
+                  Animate Masks
+                </label>
+              </div>
 
-          {animateMasks && (
-            <div className="control-group">
-              <label>Animation Speed: {animationSpeed}%</label>
-              <input
-                type="range"
-                min="1"
-                max="100"
-                value={animationSpeed}
-                onChange={(e) => setAnimationSpeed(Number(e.target.value))}
-              />
-            </div>
-          )}
+              {animateMasks && (
+                <div className="control-group">
+                  <label>Animation Speed: {animationSpeed}%</label>
+                  <input type="range" min="1" max="100" value={animationSpeed}
+                    onChange={handleChange(setAnimationSpeed)} onPointerUp={handlePointerUp} />
+                </div>
+              )}
 
-          <div className="control-group">
-            <label>Disappear: {disappearChance}%</label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={disappearChance}
-              onChange={(e) => setDisappearChance(Number(e.target.value))}
-            />
-          </div>
+              <div className="control-group">
+                <label>Disappear: {disappearChance}%</label>
+                <input type="range" min="0" max="100" value={disappearChance}
+                  onChange={handleChange(setDisappearChance)} onPointerUp={handlePointerUp} />
+              </div>
 
-          <div className="control-group">
-            <label>Background Color</label>
-            <input
-              type="color"
-              value={backgroundColor}
-              onChange={(e) => setBackgroundColor(e.target.value)}
-            />
-          </div>
+              <div className="control-group">
+                <label>Background Color</label>
+                <input type="color" value={backgroundColor}
+                  onChange={(e) => setBackgroundColor(e.target.value)} />
+              </div>
 
-          <div className="control-group">
-            <label>Exclude Color</label>
-            <input
-              type="color"
-              value={excludeColor || '#00ff00'}
-              onChange={(e) => setExcludeColor(e.target.value)}
-            />
-            {excludeColor && (
-              <button onClick={() => setExcludeColor('')} style={{ fontSize: '0.85rem', padding: '0.25rem 0.5rem' }}>
-                Clear
+              <div className="control-group">
+                <label>Exclude Color</label>
+                <input type="color" value={excludeColor || '#00ff00'}
+                  onChange={(e) => setExcludeColor(e.target.value)} />
+                {excludeColor && (
+                  <button onClick={() => setExcludeColor('')} style={{ fontSize: '0.85rem', padding: '0.25rem 0.5rem' }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="control-group checkbox">
+                <label>
+                  <input type="checkbox" checked={cycleTiles}
+                    onChange={(e) => setCycleTiles(e.target.checked)} />
+                  Cycle All Tiles
+                </label>
+              </div>
+
+              <div className="control-group checkbox">
+                <label>
+                  <input type="checkbox" checked={livePreview}
+                    onChange={(e) => setLivePreview(e.target.checked)} />
+                  Live Preview
+                </label>
+              </div>
+
+              <button onClick={generate} disabled={tileCount === 0}>
+                🎲 Regenerate
               </button>
-            )}
-          </div>
 
-          <div className="control-group checkbox">
-            <label>
-              <input
-                type="checkbox"
-                checked={cycleTiles}
-                onChange={(e) => setCycleTiles(e.target.checked)}
-              />
-              Cycle All Tiles
-            </label>
-          </div>
+              <button onClick={exportPattern} disabled={tileCount === 0}>
+                💾 Export PNG
+              </button>
 
-          <button onClick={generatePattern} disabled={tiles.length === 0}>
-            🎲 Regenerate
-          </button>
-
-          <button onClick={exportPattern} disabled={tiles.length === 0}>
-            💾 Export PNG
-          </button>
-
-          {tiles.length > 0 && (
-            <div className="info">
-              📊 {tiles.length} tiles loaded
-            </div>
-          )}
-          </>
+              {tileCount > 0 && (
+                <div className="info">📊 {tileCount} tiles loaded</div>
+              )}
+            </>
           )}
         </div>
 
-        <div className="canvas-wrapper">
+        <div className="canvas-wrapper" style={{ position: 'relative' }}>
           <canvas
             ref={canvasRef}
             width={canvasSize.width}
             height={canvasSize.height}
           />
+          {import.meta.env.DEV && animateMasks && fps !== null && (
+            <div style={{
+              position: 'absolute', top: 8, right: 8,
+              background: 'rgba(0,0,0,0.6)', color: '#0f0',
+              fontFamily: 'monospace', fontSize: '12px',
+              padding: '2px 6px', borderRadius: '3px',
+              pointerEvents: 'none',
+            }}>
+              {fps} fps
+            </div>
+          )}
         </div>
       </div>
     </div>
