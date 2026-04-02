@@ -25,6 +25,12 @@ function App() {
   const [animationSpeed, setAnimationSpeed]         = useState(50);
   const [minimizeUI, setMinimizeUI]                 = useState(false);
   const [livePreview, setLivePreview]               = useState(true);
+  const [effectChroma,    setEffectChroma]    = useState(0);
+  const [effectScanlines, setEffectScanlines] = useState(0);
+  const [effectBarrel,    setEffectBarrel]    = useState(0);
+  const [effectVignette,  setEffectVignette]  = useState(0);
+  const [effectGrain,     setEffectGrain]     = useState(0);
+  const [effectCRTMask,   setEffectCRTMask]   = useState(0);
   const [paintMode, setPaintMode]                   = useState('paint');
   const [brushSize, setBrushSize]                   = useState(1);
 
@@ -104,6 +110,14 @@ function App() {
   const fps = useWebGLRenderer(canvasRef, atlasData, instanceData, {
     backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
     bgImage, maskTextureRef, maskVersion,
+    effects: {
+      chroma:    effectChroma,
+      scanlines: effectScanlines,
+      barrel:    effectBarrel,
+      vignette:  effectVignette,
+      grain:     effectGrain,
+      crtMask:   effectCRTMask,
+    },
   });
 
   const handleChange    = (setter) => (e) => setter(Number(e.target.value));
@@ -248,6 +262,44 @@ function App() {
                 <label>Exclude Tolerance: {excludeTolerance}</label>
                 <input type="range" min="0" max="32" value={excludeTolerance}
                   onChange={handleChange(setExcludeTolerance)} onPointerUp={handlePointerUp} />
+              </div>
+
+              <div className="section-header">Effects</div>
+
+              <div className="control-group">
+                <label>Chromatic Aberration: {effectChroma}%</label>
+                <input type="range" min="0" max="100" value={effectChroma}
+                  onChange={handleChange(setEffectChroma)} />
+              </div>
+
+              <div className="control-group">
+                <label>Scanlines: {effectScanlines}%</label>
+                <input type="range" min="0" max="100" value={effectScanlines}
+                  onChange={handleChange(setEffectScanlines)} />
+              </div>
+
+              <div className="control-group">
+                <label>Barrel: {effectBarrel}%</label>
+                <input type="range" min="0" max="100" value={effectBarrel}
+                  onChange={handleChange(setEffectBarrel)} />
+              </div>
+
+              <div className="control-group">
+                <label>Vignette: {effectVignette}%</label>
+                <input type="range" min="0" max="100" value={effectVignette}
+                  onChange={handleChange(setEffectVignette)} />
+              </div>
+
+              <div className="control-group">
+                <label>Film Grain: {effectGrain}%</label>
+                <input type="range" min="0" max="100" value={effectGrain}
+                  onChange={handleChange(setEffectGrain)} />
+              </div>
+
+              <div className="control-group">
+                <label>CRT Mask: {effectCRTMask}%</label>
+                <input type="range" min="0" max="100" value={effectCRTMask}
+                  onChange={handleChange(setEffectCRTMask)} />
               </div>
 
               <div className="section-header">Background Image</div>
