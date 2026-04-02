@@ -4,36 +4,38 @@ import './App.css';
 import { useTileset }           from './hooks/useTileset.js';
 import { usePatternGenerator }  from './hooks/usePatternGenerator.js';
 import { useWebGLRenderer }     from './hooks/useWebGLRenderer.js';
+import { useBackgroundImage }   from './hooks/useBackgroundImage.js';
+import { useMask }              from './hooks/useMask.js';
 import { TILE_SIZE }            from './webgl/constants.js';
 
 function App() {
-  const [tilesets, setTilesets]                   = useState([]);
-  const [canvasSize, setCanvasSize]               = useState({ width: window.innerWidth, height: window.innerHeight });
-  const [chaos, setChaos]                         = useState(50);
-  const [coherence, setCoherence]                 = useState(50);
-  const [normalize, setNormalize]                 = useState(50);
-  const [scale, setScale]                         = useState(1);
-  const [excludeColor, setExcludeColor]           = useState('');
-  const [tilesetWeights, setTilesetWeights]       = useState({});
-  const [cycleTiles, setCycleTiles]               = useState(false);
+  const [tilesets, setTilesets]                     = useState([]);
+  const [canvasSize, setCanvasSize]                 = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [chaos, setChaos]                           = useState(50);
+  const [coherence, setCoherence]                   = useState(50);
+  const [normalize, setNormalize]                   = useState(50);
+  const [scale, setScale]                           = useState(1);
+  const [excludeColor, setExcludeColor]             = useState('');
+  const [tilesetWeights, setTilesetWeights]         = useState({});
+  const [cycleTiles, setCycleTiles]                 = useState(false);
   const [circularMaskChance, setCircularMaskChance] = useState(0);
-  const [disappearChance, setDisappearChance]     = useState(0);
-  const [backgroundColor, setBackgroundColor]     = useState('#000000');
-  const [animateMasks, setAnimateMasks]           = useState(false);
-  const [animationSpeed, setAnimationSpeed]       = useState(50);
-  const [minimizeUI, setMinimizeUI]               = useState(false);
-  const [livePreview, setLivePreview]             = useState(true);
+  const [disappearChance, setDisappearChance]       = useState(0);
+  const [backgroundColor, setBackgroundColor]       = useState('#000000');
+  const [animateMasks, setAnimateMasks]             = useState(false);
+  const [animationSpeed, setAnimationSpeed]         = useState(50);
+  const [minimizeUI, setMinimizeUI]                 = useState(false);
+  const [livePreview, setLivePreview]               = useState(true);
+  const [paintMode, setPaintMode]                   = useState('paint');
+  const [brushSize, setBrushSize]                   = useState(1);
 
   const canvasRef = useRef(null);
 
-  // Window resize
   useEffect(() => {
     const onResize = () => setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Handle tileset upload
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -54,40 +56,41 @@ function App() {
 
   const removeTileset = (id) => {
     setTilesets(prev => prev.filter(t => t.id !== id));
-    setTilesetWeights(prev => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+    setTilesetWeights(prev => { const n = { ...prev }; delete n[id]; return n; });
   };
 
-  // --- Hooks ---
   const atlasData = useTileset(tilesets, excludeColor);
 
-  const cols = Math.floor(canvasSize.width  / (TILE_SIZE * scale));
-  const rows = Math.floor(canvasSize.height / (TILE_SIZE * scale));
+  const cols           = Math.floor(canvasSize.width  / (TILE_SIZE * scale));
+  const rows           = Math.floor(canvasSize.height / (TILE_SIZE * scale));
+  const scaledTileSize = TILE_SIZE * scale;
 
   const settings = useMemo(() => ({
     cols, rows,
-    scaledTileSize: TILE_SIZE * scale,
+    scaledTileSize,
     chaos, coherence, normalize,
     circularMaskChance, disappearChance,
     cycleTiles, tilesetWeights,
-  }), [cols, rows, scale, chaos, coherence, normalize, circularMaskChance, disappearChance, cycleTiles, tilesetWeights]);
+  }), [cols, rows, scaledTileSize, chaos, coherence, normalize,
+       circularMaskChance, disappearChance, cycleTiles, tilesetWeights]);
 
   const { instanceData, generate } = usePatternGenerator(atlasData, settings, livePreview);
 
+  const { bgImage, bgUrl, handleBgUpload, clearBackground } = useBackgroundImage();
+
+  const { maskTextureRef, maskVersion, resetMask, brushPreview } =
+    useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushSize);
+
   const fps = useWebGLRenderer(canvasRef, atlasData, instanceData, {
     backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
+    bgImage, maskTextureRef, maskVersion,
   });
 
-  // Slider helpers
-  const handleChange = (setter) => (e) => setter(Number(e.target.value));
+  const handleChange    = (setter) => (e) => setter(Number(e.target.value));
   const handlePointerUp = useCallback(() => {
     if (!livePreview) generate();
   }, [livePreview, generate]);
 
-  // Export PNG (works with WebGL canvas + preserveDrawingBuffer)
   const exportPattern = () => {
     const link = document.createElement('a');
     link.download = `tile-glitch-${Date.now()}.png`;
@@ -99,11 +102,6 @@ function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>🎨 Tile Glitch Generator</h1>
-        <p>Upload an NES tileset and create glitchy patterns</p>
-      </header>
-
       <div className="container">
         <div className={`controls ${minimizeUI ? 'minimized' : ''}`}>
           <button
@@ -116,8 +114,9 @@ function App() {
 
           {!minimizeUI && (
             <>
+              <div className="section-header">Tilesets</div>
+
               <div className="control-group">
-                <label>Upload Tileset(s)</label>
                 <input type="file" accept="image/*" multiple onChange={handleFileUpload} />
               </div>
 
@@ -142,6 +141,8 @@ function App() {
                   ))}
                 </div>
               )}
+
+              <div className="section-header">Generation</div>
 
               <div className="control-group">
                 <label>Chaos: {chaos}%</label>
@@ -195,6 +196,16 @@ function App() {
                   onChange={handleChange(setDisappearChance)} onPointerUp={handlePointerUp} />
               </div>
 
+              <div className="control-group checkbox">
+                <label>
+                  <input type="checkbox" checked={cycleTiles}
+                    onChange={(e) => setCycleTiles(e.target.checked)} />
+                  Cycle All Tiles
+                </label>
+              </div>
+
+              <div className="section-header">Colors</div>
+
               <div className="control-group">
                 <label>Background Color</label>
                 <input type="color" value={backgroundColor}
@@ -206,19 +217,46 @@ function App() {
                 <input type="color" value={excludeColor || '#00ff00'}
                   onChange={(e) => setExcludeColor(e.target.value)} />
                 {excludeColor && (
-                  <button onClick={() => setExcludeColor('')} style={{ fontSize: '0.85rem', padding: '0.25rem 0.5rem' }}>
-                    Clear
-                  </button>
+                  <button className="btn-small" onClick={() => setExcludeColor('')}>Clear</button>
                 )}
               </div>
 
-              <div className="control-group checkbox">
-                <label>
-                  <input type="checkbox" checked={cycleTiles}
-                    onChange={(e) => setCycleTiles(e.target.checked)} />
-                  Cycle All Tiles
-                </label>
+              <div className="section-header">Background Image</div>
+
+              <div className="control-group bg-upload-row">
+                <label className="btn-secondary" htmlFor="bg-upload">Upload Image</label>
+                <input id="bg-upload" type="file" accept="image/*" onChange={handleBgUpload}
+                  style={{ display: 'none' }} />
+                {bgUrl && (
+                  <>
+                    <img src={bgUrl} alt="bg thumbnail" className="bg-thumbnail" />
+                    <button className="btn-small" onClick={clearBackground}>Clear</button>
+                  </>
+                )}
               </div>
+
+              <div className="section-header">Mask</div>
+
+              <div className="paint-toggle">
+                <button
+                  className={`toggle-btn ${paintMode === 'paint' ? 'active' : ''}`}
+                  onClick={() => setPaintMode('paint')}
+                >Paint</button>
+                <button
+                  className={`toggle-btn ${paintMode === 'erase' ? 'active' : ''}`}
+                  onClick={() => setPaintMode('erase')}
+                >Erase</button>
+              </div>
+
+              <div className="control-group">
+                <label>Brush Size: {brushSize}</label>
+                <input type="range" min="1" max="10" value={brushSize}
+                  onChange={handleChange(setBrushSize)} />
+              </div>
+
+              <button className="btn-secondary" onClick={resetMask}>Reset Mask</button>
+
+              <div className="section-divider" />
 
               <div className="control-group checkbox">
                 <label>
@@ -243,12 +281,23 @@ function App() {
           )}
         </div>
 
-        <div className="canvas-wrapper" style={{ position: 'relative' }}>
+        <div className="canvas-wrapper">
           <canvas
             ref={canvasRef}
             width={canvasSize.width}
             height={canvasSize.height}
           />
+          {brushPreview && tileCount > 0 && (
+            <div
+              className="brush-preview"
+              style={{
+                left:   `${(brushPreview.col - brushPreview.size) * scaledTileSize}px`,
+                top:    `${(brushPreview.row - brushPreview.size) * scaledTileSize}px`,
+                width:  `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
+                height: `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
+              }}
+            />
+          )}
           {import.meta.env.DEV && animateMasks && fps !== null && (
             <div style={{
               position: 'absolute', top: 8, right: 8,
