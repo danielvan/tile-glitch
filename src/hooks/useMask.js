@@ -23,6 +23,11 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
   const oldDimsRef     = useRef(null);   // { cols, rows } from previous allocation
   const isPaintingRef  = useRef(false);
 
+  const MAX_HISTORY     = 20;
+  const historyRef      = useRef([]);
+  const historyIndexRef = useRef(-1);
+  const [historyVersion, setHistoryVersion] = useState(0);
+
   const [maskVersion,   setMaskVersion]   = useState(0);
   const [brushPreview,  setBrushPreview]  = useState(null);
 
@@ -36,6 +41,34 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, c, r, 0, gl.RED, gl.UNSIGNED_BYTE, maskArrayRef.current);
     setMaskVersion(v => v + 1);
   }, [canvasRef]);
+
+  const saveSnapshot = useCallback(() => {
+    if (!maskArrayRef.current) return;
+    historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+    historyRef.current.push(maskArrayRef.current.slice());
+    if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
+    historyIndexRef.current = historyRef.current.length - 1;
+    setHistoryVersion(v => v + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current--;
+    maskArrayRef.current.set(historyRef.current[historyIndexRef.current]);
+    uploadMask();
+    setHistoryVersion(v => v + 1);
+  }, [uploadMask]);
+
+  const redo = useCallback(() => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current++;
+    maskArrayRef.current.set(historyRef.current[historyIndexRef.current]);
+    uploadMask();
+    setHistoryVersion(v => v + 1);
+  }, [uploadMask]);
+
+  const canUndo = historyIndexRef.current > 0;
+  const canRedo = historyIndexRef.current < historyRef.current.length - 1;
 
   // Allocate / resize mask array and create/update GPU texture
   useEffect(() => {
@@ -58,6 +91,9 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
       }
     }
 
+    historyRef.current      = [];
+    historyIndexRef.current = -1;
+    setHistoryVersion(v => v + 1);
     maskArrayRef.current = newMask;
     oldDimsRef.current   = { cols, rows };
 
@@ -127,6 +163,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
 
     const onPointerUp = () => {
       isPaintingRef.current = false;
+      saveSnapshot();
     };
 
     const onPointerLeave = () => {
@@ -145,13 +182,24 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
       canvas.removeEventListener('pointerup',    onPointerUp);
       canvas.removeEventListener('pointerleave', onPointerLeave);
     };
-  }, [canvasRef, scaledTileSize, paintMode, brushSize, paintAt]);
+  }, [canvasRef, scaledTileSize, paintMode, brushSize, paintAt, saveSnapshot]);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); }
+      if (mod &&  e.shiftKey && e.key === 'z') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [undo, redo]);
 
   const resetMask = useCallback(() => {
     if (!maskArrayRef.current) return;
+    saveSnapshot();
     maskArrayRef.current.fill(0);
     uploadMask();
-  }, [uploadMask]);
+  }, [saveSnapshot, uploadMask]);
 
-  return { maskTextureRef, maskVersion, resetMask, brushPreview };
+  return { maskTextureRef, maskVersion, resetMask, brushPreview, undo, redo, canUndo, canRedo };
 }
