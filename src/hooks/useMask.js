@@ -168,6 +168,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
 
     const onPointerLeave = () => {
       setBrushPreview(null);
+      if (isPaintingRef.current) saveSnapshot();
       isPaintingRef.current = false;
     };
 
