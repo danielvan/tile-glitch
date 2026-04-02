@@ -2,7 +2,7 @@
 export const TILE_SIZE = 8;
 
 // Number of floats per tile instance in the instance buffer
-export const FLOATS_PER_INSTANCE = 16;
+export const FLOATS_PER_INSTANCE = 18;
 
 // Float indices into each instance's data (multiply by 4 for byte offset)
 export const I_POS_X      = 0;
@@ -21,3 +21,5 @@ export const I_COLOR_R    = 12;
 export const I_COLOR_G    = 13;
 export const I_COLOR_B    = 14;
 export const I_COLOR_A    = 15;
+export const I_GRID_U     = 16;  // col / cols  (normalized 0..1)
+export const I_GRID_V     = 17;  // row / rows  (normalized 0..1)
