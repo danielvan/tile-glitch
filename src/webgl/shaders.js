@@ -143,3 +143,80 @@ out vec4 fragColor;
 void main() {
   fragColor = texture(uBgImage, vUV);
 }`;
+
+// Post-processing shaders — fullscreen CRT effects pass
+export const POST_VERTEX_SHADER = `#version 300 es
+
+in vec2 aPos;
+out vec2 vUV;
+
+void main() {
+  gl_Position = vec4(aPos, 0.0, 1.0);
+  vUV = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5);
+}`;
+
+export const POST_FRAGMENT_SHADER = `#version 300 es
+precision mediump float;
+
+uniform sampler2D uScene;
+uniform vec2      uResolution;
+uniform float     uTime;
+uniform float     uChroma;
+uniform float     uScanlines;
+uniform float     uBarrel;
+uniform float     uVignette;
+uniform float     uGrain;
+uniform float     uCRTMask;
+
+in vec2 vUV;
+out vec4 fragColor;
+
+vec2 barrelDistort(vec2 uv, float k) {
+  vec2 d = uv - 0.5;
+  return uv + d * dot(d, d) * k * 2.0;
+}
+
+void main() {
+  // 1. Barrel distortion — warp UV, clip edges to black
+  vec2 uv = mix(vUV, barrelDistort(vUV, uBarrel), uBarrel);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  // 2. Chromatic aberration — radial R/B offset
+  vec3 color;
+  if (uChroma > 0.001) {
+    vec2 d      = uv - 0.5;
+    float dist  = length(d);
+    vec2 offset = normalize(d) * dist * uChroma * 0.05;
+    color.r = texture(uScene, uv + offset).r;
+    color.g = texture(uScene, uv).g;
+    color.b = texture(uScene, uv - offset).b;
+  } else {
+    color = texture(uScene, uv).rgb;
+  }
+
+  // 3. Scanlines — darken every other row
+  float line = mod(floor(gl_FragCoord.y), 2.0);
+  color *= mix(1.0, 1.0 - line * 0.5, uScanlines);
+
+  // 4. CRT RGB mask — phosphor stripe pattern
+  float mx = mod(floor(gl_FragCoord.x), 3.0);
+  vec3 phosphor = vec3(
+    step(mx, 0.5),
+    step(abs(mx - 1.0), 0.5),
+    step(abs(mx - 2.0), 0.5)
+  );
+  color *= mix(vec3(1.0), 0.6 + 0.4 * phosphor, uCRTMask * 0.7);
+
+  // 5. Film grain — animated per-frame noise
+  float grain = fract(sin(dot(vUV + fract(uTime * 0.001), vec2(12.9898, 78.233))) * 43758.5453);
+  color = mix(color, vec3(grain), uGrain * 0.15);
+
+  // 6. Vignette — darken edges
+  float vig = 1.0 - length((uv - 0.5) * 1.8) * uVignette;
+  color *= clamp(vig, 0.0, 1.0);
+
+  fragColor = vec4(color, 1.0);
+}`;
