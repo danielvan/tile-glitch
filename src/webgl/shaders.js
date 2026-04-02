@@ -15,6 +15,7 @@ in float aPhase;      // random starting phase for animation
 in float aSpeed;      // animation speed multiplier (0.5 - 2.5)
 in float aDirection;  // 1.0 or -1.0 (oscillation direction)
 in vec4  aColor;      // r, g, b, a chaos tint overlay
+in vec2  aGridPos;    // normalized grid coords: (col/cols, row/rows)
 
 uniform vec2  uCanvasSize;
 uniform float uTileSize;  // TILE_SIZE * scale in pixels
@@ -27,6 +28,7 @@ out float vSpeed;
 out float vDirection;
 out vec2  vLocalPos;   // [-0.5, 0.5] used for circular mask distance
 out vec4  vColor;
+out vec2  vMaskCoord;  // UV into mask texture (centre of tile cell)
 
 void main() {
   // Position this vertex in canvas pixel space
@@ -51,12 +53,15 @@ void main() {
   vDirection = aDirection;
   vLocalPos  = aQuadPos;
   vColor     = aColor;
+  vMaskCoord = aGridPos;
 }`;
 
 export const FRAGMENT_SHADER = `#version 300 es
 precision mediump float;
 
 uniform sampler2D uAtlas;
+uniform sampler2D uMask;
+uniform bool      uHasMask;
 uniform float     uTime;       // rAF timestamp in ms
 uniform float     uBaseSpeed;  // (animationSpeed / 1000) * 0.1
 uniform bool      uAnimate;    // animateMasks toggle
@@ -69,10 +74,14 @@ in float vSpeed;
 in float vDirection;
 in vec2  vLocalPos;
 in vec4  vColor;
+in vec2  vMaskCoord;
 
 out vec4 fragColor;
 
 void main() {
+  // Mask: tile is transparent so background shows through
+  if (uHasMask && texture(uMask, vMaskCoord).r > 0.5) discard;
+
   // Skip fully transparent tiles (disappeared)
   if (vOpacity < 0.01) discard;
 
@@ -104,4 +113,33 @@ void main() {
   }
 
   fragColor = vec4(color.rgb, color.a * alpha);
+}`;
+
+// Background image shaders — simple full-screen quad with cover-fit UV
+export const BG_VERTEX_SHADER = `#version 300 es
+
+in vec2 aPos;  // clip-space quad: [-1, 1]
+
+uniform vec2 uBgUVScale;   // cover-fit scale
+uniform vec2 uBgUVOffset;  // cover-fit offset
+
+out vec2 vUV;
+
+void main() {
+  gl_Position = vec4(aPos, 0.0, 1.0);
+  // aPos.y=1 is top in clip space → UV.y=0 (top of image)
+  vec2 uv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5);
+  vUV = uv * uBgUVScale + uBgUVOffset;
+}`;
+
+export const BG_FRAGMENT_SHADER = `#version 300 es
+precision mediump float;
+
+uniform sampler2D uBgImage;
+
+in vec2 vUV;
+out vec4 fragColor;
+
+void main() {
+  fragColor = texture(uBgImage, vUV);
 }`;
