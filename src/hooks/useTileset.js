@@ -1,20 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TILE_SIZE } from '../webgl/constants.js';
 
-function tileHasExcludedColor(ctx, img, srcX, srcY, excludeHex) {
-  if (!excludeHex) return false;
-  ctx.clearRect(0, 0, TILE_SIZE, TILE_SIZE);
-  ctx.drawImage(img, srcX, srcY, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
-  const { data } = ctx.getImageData(0, 0, TILE_SIZE, TILE_SIZE);
-  const r = parseInt(excludeHex.slice(1, 3), 16);
-  const g = parseInt(excludeHex.slice(3, 5), 16);
-  const b = parseInt(excludeHex.slice(5, 7), 16);
-  for (let i = 0; i < data.length; i += 4) {
-    if (Math.abs(data[i] - r) < 20 && Math.abs(data[i+1] - g) < 20 && Math.abs(data[i+2] - b) < 20) {
-      return true;
+function buildExcludeFilter(img, excludeHex) {
+  if (!excludeHex) return null;
+  // Read the entire image in one getImageData call
+  const canvas = document.createElement('canvas');
+  canvas.width  = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const { data } = ctx.getImageData(0, 0, img.width, img.height);
+  const er = parseInt(excludeHex.slice(1, 3), 16);
+  const eg = parseInt(excludeHex.slice(3, 5), 16);
+  const eb = parseInt(excludeHex.slice(5, 7), 16);
+
+  // Returns true if any pixel in the 8×8 tile at (srcX, srcY) matches the exclude color
+  return (srcX, srcY) => {
+    for (let ty = srcY; ty < srcY + TILE_SIZE; ty++) {
+      for (let tx = srcX; tx < srcX + TILE_SIZE; tx++) {
+        const i = (ty * img.width + tx) * 4;
+        if (Math.abs(data[i] - er) < 20 && Math.abs(data[i+1] - eg) < 20 && Math.abs(data[i+2] - eb) < 20) {
+          return true;
+        }
+      }
     }
-  }
-  return false;
+    return false;
+  };
 }
 
 /**
@@ -36,7 +47,6 @@ function tileHasExcludedColor(ctx, img, srcX, srcY, excludeHex) {
  */
 export function useTileset(tilesetList, excludeColor) {
   const [atlasData, setAtlasData] = useState(null);
-  const colorCanvasRef = useRef(null);
 
   useEffect(() => {
     if (tilesetList.length === 0) {
@@ -44,26 +54,19 @@ export function useTileset(tilesetList, excludeColor) {
       return;
     }
 
-    // Reuse a single small canvas for color checking
-    if (!colorCanvasRef.current) {
-      const c = document.createElement('canvas');
-      c.width = TILE_SIZE;
-      c.height = TILE_SIZE;
-      colorCanvasRef.current = c;
-    }
-    const colorCtx = colorCanvasRef.current.getContext('2d', { willReadFrequently: true });
-
     // Collect all tiles that pass the exclude-color filter
     const tiles = [];
     tilesetList.forEach((tileset, imgIndex) => {
       const img = tileset.img;
       const cols = Math.floor(img.width / TILE_SIZE);
       const rows = Math.floor(img.height / TILE_SIZE);
+      const shouldExclude = buildExcludeFilter(img, excludeColor); // one read per tileset
+
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           const srcX = col * TILE_SIZE;
           const srcY = row * TILE_SIZE;
-          if (!tileHasExcludedColor(colorCtx, img, srcX, srcY, excludeColor)) {
+          if (!shouldExclude || !shouldExclude(srcX, srcY)) {
             tiles.push({ srcX, srcY, imageIndex: imgIndex, tilesetId: tileset.id });
           }
         }
@@ -119,7 +122,7 @@ export function useTileset(tilesetList, excludeColor) {
       tilesPerRow: Math.floor(ts.img.width / TILE_SIZE),
     }));
 
-    console.log(`Atlas: ${atlasWidth}×${atlasHeight}px, ${tiles.length} tiles`);
+    if (import.meta.env.DEV) console.log(`Atlas: ${atlasWidth}×${atlasHeight}px, ${tiles.length} tiles`);
     setAtlasData({ atlasCanvas, atlasWidth, atlasHeight, tiles, uvData, tileMap, tilesetMeta });
   }, [tilesetList, excludeColor]);
 
