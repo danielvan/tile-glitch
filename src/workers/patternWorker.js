@@ -12,9 +12,8 @@ import {
 let tiles     = [];
 let uvData    = null;  // Float32Array, [uvX, uvY, uvW, uvH] × tiles.length
 let tileMap   = null;  // Map<"imgIdx,srcX,srcY", tileIndex>
-let tilesetMeta = [];  // [{ id, tilesPerRow }]
 
-// O(1) weighted tile selection using prefix sums
+// O(log n) weighted tile selection using prefix sums
 // Returns a tile index (0 to tiles.length - 1)
 function selectWeighted(prefixSums, totalWeight) {
   let r = Math.random() * totalWeight;
@@ -58,7 +57,7 @@ function generate({
   circularMaskChance, disappearChance,
   cycleTiles, tilesetWeights,
 }) {
-  if (tiles.length === 0) return;
+  if (tiles.length === 0 || !uvData || !tileMap) return;
 
   const [prefixSums, totalWeight] = buildPrefixSums(tilesetWeights);
   const instanceData = new Float32Array(cols * rows * FLOATS_PER_INSTANCE);
@@ -205,7 +204,6 @@ self.onmessage = (e) => {
     tiles       = e.data.tiles;
     uvData      = e.data.uvData;
     tileMap     = e.data.tileMap;
-    tilesetMeta = e.data.tilesetMeta;
     return;
   }
 
