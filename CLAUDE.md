@@ -6,13 +6,6 @@ A React + Vite canvas-based tile glitch generator. Upload NES-style tilesets (8Ã
 
 **Stack:** React 19, Vite 7, Canvas (being refactored to WebGL via twgl.js)
 
-## About the Developer
-
-Daniel is a designer, not a deep engineer. When explaining technical decisions:
-- Lead with what changes visually or in the UI, not implementation internals
-- Keep technical explanations short and concrete
-- Skip jargon unless necessary, and define it when used
-
 ## Current Work
 
 A WebGL performance refactor is in progress. Spec at:
