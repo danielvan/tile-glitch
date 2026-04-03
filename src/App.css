@@ -368,3 +368,26 @@ input[type="file"] {
   font-family: inherit;
   cursor: pointer;
 }
+
+.seed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.seed-value {
+  flex: 1;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lock-btn.active {
+  background: var(--accent, #4a9eff);
+  color: #fff;
+  border-color: var(--accent, #4a9eff);
+}

@@ -12,7 +12,7 @@ import PatternWorker from '../workers/patternWorker.js?worker';
  *
  * Returns { instanceData: Float32Array | null, generate: () => void }
  */
-export function usePatternGenerator(atlasData, settings, livePreview) {
+export function usePatternGenerator(atlasData, settings, livePreview, locked) {
   const [instanceData, setInstanceData] = useState(null);
   const workerRef   = useRef(null);
   const rafRef      = useRef(null);
@@ -39,14 +39,15 @@ export function usePatternGenerator(atlasData, settings, livePreview) {
   }, [atlasData]);
 
   // Imperative generate: sends current settings to worker
-  const generate = useCallback(() => {
+  // `overrides` lets callers inject values (e.g. a fresh seed) before state updates
+  const generate = useCallback((overrides = {}) => {
     if (!atlasData || !workerRef.current) return;
-    workerRef.current.postMessage({ type: 'generate', ...settings });
+    workerRef.current.postMessage({ type: 'generate', ...settings, ...overrides });
   }, [atlasData, settings]);
 
-  // Auto-generate when atlas or settings change
+  // Auto-generate when atlas or settings change (skipped when locked)
   useEffect(() => {
-    if (!atlasData) return;
+    if (!atlasData || locked) return;
 
     if (livePreview) {
       // Throttle to one frame: cancel pending rAF and schedule a new one
@@ -57,7 +58,7 @@ export function usePatternGenerator(atlasData, settings, livePreview) {
       });
     }
     // If !livePreview, generate() is called manually from App (on pointer-up or button)
-  }, [atlasData, settings, livePreview]);
+  }, [atlasData, settings, livePreview, locked]);
 
   return { instanceData, generate };
 }

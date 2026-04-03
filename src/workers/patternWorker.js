@@ -9,6 +9,16 @@ import {
   I_GRID_U, I_GRID_V,
 } from '../webgl/constants.js';
 
+// Mulberry32 — fast, seedable PRNG
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
 // Cached static data (set once per tileset change)
 let tiles     = [];
 let uvData    = null;  // Float32Array, [uvX, uvY, uvW, uvH] × tiles.length
@@ -16,8 +26,8 @@ let tileMap   = null;  // Map<"imgIdx,srcX,srcY", tileIndex>
 
 // O(log n) weighted tile selection using prefix sums
 // Returns a tile index (0 to tiles.length - 1)
-function selectWeighted(prefixSums, totalWeight) {
-  let r = Math.random() * totalWeight;
+function selectWeighted(prefixSums, totalWeight, rng) {
+  let r = rng() * totalWeight;
   let lo = 0;
   let hi = prefixSums.length - 2;
   while (lo < hi) {
@@ -56,10 +66,11 @@ function generate({
   cols, rows, scaledTileSize,
   chaos, coherence, normalize,
   circularMaskChance, disappearChance,
-  cycleTiles, tilesetWeights,
+  cycleTiles, tilesetWeights, seed,
 }) {
   if (tiles.length === 0 || !uvData || !tileMap) return;
 
+  const rng = mulberry32(seed ?? Date.now());
   const [prefixSums, totalWeight] = buildPrefixSums(tilesetWeights);
   const instanceData = new Float32Array(cols * rows * FLOATS_PER_INSTANCE);
 
@@ -72,7 +83,7 @@ function generate({
   if (cycleTiles) {
     tilePool = Array.from({ length: tiles.length }, (_, i) => i);
     for (let i = tilePool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [tilePool[i], tilePool[j]] = [tilePool[j], tilePool[i]];
     }
   }
@@ -91,10 +102,10 @@ function generate({
 
       const connectionChance = coherence + normalize * 0.3;
 
-      if (neighbors.length > 0 && Math.random() * 100 < connectionChance) {
+      if (neighbors.length > 0 && rng() * 100 < connectionChance) {
         // Pick a neighbor weighted by proximity
         const totalNeighborWeight = neighbors.reduce((s, n) => s + n.weight, 0);
-        let r = Math.random() * totalNeighborWeight;
+        let r = rng() * totalNeighborWeight;
         let neighborIdx = neighbors[0].idx;
         for (const n of neighbors) {
           r -= n.weight;
@@ -102,13 +113,13 @@ function generate({
         }
 
         const sameChance = normalize;
-        if (Math.random() * 100 < sameChance) {
+        if (rng() * 100 < sameChance) {
           // Use same tile or immediate neighbor in source tileset
           const adjacentCandidates = [
             [0, 0], [0, 0], [0, 0],  // heavily favor same tile
             [-1, 0], [1, 0], [0, -1], [0, 1],
           ];
-          const [dc, dr] = adjacentCandidates[Math.floor(Math.random() * adjacentCandidates.length)];
+          const [dc, dr] = adjacentCandidates[Math.floor(rng() * adjacentCandidates.length)];
           if (dc === 0 && dr === 0) {
             selectedTileIdx = neighborIdx;
           } else {
@@ -124,7 +135,7 @@ function generate({
               offsets.push([dx, dy]);
             }
           }
-          const [dc, dr] = offsets[Math.floor(Math.random() * offsets.length)];
+          const [dc, dr] = offsets[Math.floor(rng() * offsets.length)];
           const adj = getAdjacentTileIndex(neighborIdx, dc, dr);
           selectedTileIdx = adj !== -1 ? adj : neighborIdx;
         }
@@ -136,14 +147,14 @@ function generate({
           if (poolIndex >= tilePool.length) {
             poolIndex = 0;
             for (let i = tilePool.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
+              const j = Math.floor(rng() * (i + 1));
               [tilePool[i], tilePool[j]] = [tilePool[j], tilePool[i]];
             }
           }
         } else {
           selectedTileIdx = totalWeight > 0
-            ? selectWeighted(prefixSums, totalWeight)
-            : Math.floor(Math.random() * tiles.length);
+            ? selectWeighted(prefixSums, totalWeight, rng)
+            : Math.floor(rng() * tiles.length);
         }
       }
 
@@ -162,16 +173,16 @@ function generate({
       instanceData[offset + I_UV_H] = uvData[selectedTileIdx * 4 + 3];
 
       // Disappeared: opacity 0
-      const disappeared = Math.random() * 100 < disappearChance;
+      const disappeared = rng() * 100 < disappearChance;
       instanceData[offset + I_OPACITY] = disappeared ? 0 : 1;
 
       // Circular mask
-      instanceData[offset + I_CIRCULAR] = Math.random() * 100 < circularMaskChance ? 1 : 0;
+      instanceData[offset + I_CIRCULAR] = rng() * 100 < circularMaskChance ? 1 : 0;
 
       // Animation
-      instanceData[offset + I_PHASE]     = Math.random() * Math.PI * 2;
-      instanceData[offset + I_SPEED]     = 0.5 + Math.random() * 2;
-      instanceData[offset + I_DIRECTION] = Math.random() > 0.5 ? 1 : -1;
+      instanceData[offset + I_PHASE]     = rng() * Math.PI * 2;
+      instanceData[offset + I_SPEED]     = 0.5 + rng() * 2;
+      instanceData[offset + I_DIRECTION] = rng() > 0.5 ? 1 : -1;
 
       // Chaos effects
       instanceData[offset + I_FLIP]    = 0;
@@ -180,14 +191,14 @@ function generate({
       instanceData[offset + I_COLOR_B] = 0;
       instanceData[offset + I_COLOR_A] = 0;
 
-      if (!disappeared && Math.random() * 100 < chaos / 2) {
-        const effect = Math.floor(Math.random() * 3);
+      if (!disappeared && rng() * 100 < chaos / 2) {
+        const effect = Math.floor(rng() * 3);
         if (effect === 0) {
           instanceData[offset + I_FLIP] = 1;
         } else if (effect === 1) {
-          instanceData[offset + I_COLOR_R] = Math.random();
-          instanceData[offset + I_COLOR_G] = Math.random();
-          instanceData[offset + I_COLOR_B] = Math.random();
+          instanceData[offset + I_COLOR_R] = rng();
+          instanceData[offset + I_COLOR_G] = rng();
+          instanceData[offset + I_COLOR_B] = rng();
           instanceData[offset + I_COLOR_A] = 0.3;
         }
         // effect 2: no visual (matches original)

@@ -8,29 +8,36 @@ import { useBackgroundImage }   from './hooks/useBackgroundImage.js';
 import { useMask }              from './hooks/useMask.js';
 import { TILE_SIZE }            from './webgl/constants.js';
 
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem('tile-glitch') ?? '{}'); } catch { return {}; }
+}
+const _s = loadSaved();
+
 function App() {
   const [tilesets, setTilesets]                     = useState([]);
   const [canvasSize, setCanvasSize]                 = useState({ width: window.innerWidth, height: window.innerHeight });
-  const [chaos, setChaos]                           = useState(50);
-  const [coherence, setCoherence]                   = useState(50);
-  const [normalize, setNormalize]                   = useState(50);
-  const [scale, setScale]                           = useState(1);
-  const [excludeTolerance, setExcludeTolerance]     = useState(8);
+  const [chaos, setChaos]                           = useState(_s.chaos ?? 50);
+  const [coherence, setCoherence]                   = useState(_s.coherence ?? 50);
+  const [normalize, setNormalize]                   = useState(_s.normalize ?? 50);
+  const [scale, setScale]                           = useState(_s.scale ?? 1);
+  const [excludeTolerance, setExcludeTolerance]     = useState(_s.excludeTolerance ?? 8);
   const [tilesetWeights, setTilesetWeights]         = useState({});
-  const [cycleTiles, setCycleTiles]                 = useState(false);
-  const [circularMaskChance, setCircularMaskChance] = useState(0);
-  const [disappearChance, setDisappearChance]       = useState(0);
-  const [backgroundColor, setBackgroundColor]       = useState('#000000');
-  const [animateMasks, setAnimateMasks]             = useState(false);
-  const [animationSpeed, setAnimationSpeed]         = useState(50);
+  const [cycleTiles, setCycleTiles]                 = useState(_s.cycleTiles ?? false);
+  const [circularMaskChance, setCircularMaskChance] = useState(_s.circularMaskChance ?? 0);
+  const [disappearChance, setDisappearChance]       = useState(_s.disappearChance ?? 0);
+  const [backgroundColor, setBackgroundColor]       = useState(_s.backgroundColor ?? '#000000');
+  const [animateMasks, setAnimateMasks]             = useState(_s.animateMasks ?? false);
+  const [animationSpeed, setAnimationSpeed]         = useState(_s.animationSpeed ?? 50);
   const [minimizeUI, setMinimizeUI]                 = useState(false);
-  const [livePreview, setLivePreview]               = useState(true);
-  const [effectChroma,    setEffectChroma]    = useState(0);
-  const [effectScanlines, setEffectScanlines] = useState(0);
-  const [effectBarrel,    setEffectBarrel]    = useState(0);
-  const [effectVignette,  setEffectVignette]  = useState(0);
-  const [effectGrain,     setEffectGrain]     = useState(0);
-  const [effectCRTMask,   setEffectCRTMask]   = useState(0);
+  const [livePreview, setLivePreview]               = useState(_s.livePreview ?? true);
+  const [seed, setSeed]                             = useState(_s.seed ?? Math.floor(Math.random() * 1e9));
+  const [locked, setLocked]                         = useState(_s.locked ?? false);
+  const [effectChroma,    setEffectChroma]    = useState(_s.effectChroma    ?? 0);
+  const [effectScanlines, setEffectScanlines] = useState(_s.effectScanlines ?? 0);
+  const [effectBarrel,    setEffectBarrel]    = useState(_s.effectBarrel    ?? 0);
+  const [effectVignette,  setEffectVignette]  = useState(_s.effectVignette  ?? 0);
+  const [effectGrain,     setEffectGrain]     = useState(_s.effectGrain     ?? 0);
+  const [effectCRTMask,   setEffectCRTMask]   = useState(_s.effectCRTMask   ?? 0);
   const [paintMode, setPaintMode]                   = useState('paint');
   const [brushSize, setBrushSize]                   = useState(1);
 
@@ -96,11 +103,11 @@ function App() {
     scaledTileSize,
     chaos, coherence, normalize,
     circularMaskChance, disappearChance,
-    cycleTiles, tilesetWeights,
+    cycleTiles, tilesetWeights, seed,
   }), [cols, rows, scaledTileSize, chaos, coherence, normalize,
-       circularMaskChance, disappearChance, cycleTiles, tilesetWeights]);
+       circularMaskChance, disappearChance, cycleTiles, tilesetWeights, seed]);
 
-  const { instanceData, generate } = usePatternGenerator(atlasData, settings, livePreview);
+  const { instanceData, generate } = usePatternGenerator(atlasData, settings, livePreview, locked);
 
   const { bgImage, bgUrl, handleBgUpload, clearBackground } = useBackgroundImage();
 
@@ -120,10 +127,31 @@ function App() {
     },
   });
 
+  // Auto-save all settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('tile-glitch', JSON.stringify({
+      chaos, coherence, normalize, scale, excludeTolerance,
+      circularMaskChance, disappearChance, backgroundColor,
+      animateMasks, animationSpeed, cycleTiles, livePreview,
+      seed, locked,
+      effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
+    }));
+  }, [chaos, coherence, normalize, scale, excludeTolerance,
+      circularMaskChance, disappearChance, backgroundColor,
+      animateMasks, animationSpeed, cycleTiles, livePreview,
+      seed, locked,
+      effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask]);
+
   const handleChange    = (setter) => (e) => setter(Number(e.target.value));
   const handlePointerUp = useCallback(() => {
-    if (!livePreview) generate();
-  }, [livePreview, generate]);
+    if (!livePreview && !locked) generate();
+  }, [livePreview, locked, generate]);
+
+  const handleNewSeed = useCallback(() => {
+    const newSeed = Math.floor(Math.random() * 1e9);
+    setSeed(newSeed);
+    generate({ seed: newSeed });
+  }, [generate]);
 
   const exportPattern = () => {
     const link = document.createElement('a');
@@ -189,6 +217,16 @@ function App() {
               )}
 
               <div className="section-header">Generation</div>
+
+              <div className="seed-row">
+                <span className="seed-value">{seed}</span>
+                <button className="btn-small" onClick={handleNewSeed} title="New random seed">🎲</button>
+                <button
+                  className={`btn-small lock-btn ${locked ? 'active' : ''}`}
+                  onClick={() => setLocked(l => !l)}
+                  title={locked ? 'Unlock pattern' : 'Lock pattern'}
+                >{locked ? '🔒' : '🔓'}</button>
+              </div>
 
               <div className="control-group">
                 <label>Chaos: {chaos}%</label>
@@ -352,7 +390,7 @@ function App() {
                 </label>
               </div>
 
-              <button onClick={generate} disabled={tileCount === 0}>
+              <button onClick={() => generate()} disabled={tileCount === 0 || locked}>
                 🎲 Regenerate
               </button>
 
