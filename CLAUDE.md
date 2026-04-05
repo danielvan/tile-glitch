@@ -4,19 +4,33 @@
 
 A React + Vite canvas-based tile glitch generator. Upload NES-style tilesets (8×8 px tiles), fill the screen with randomized/patterned tiles, tweak with sliders. Aimed at generative art / visual design use.
 
-**Stack:** React 19, Vite 7, Canvas (being refactored to WebGL via twgl.js)
+**Stack:** React 19, Vite 7, WebGL (twgl.js) — Canvas 2D refactor is complete
 
-## Current Work
+## What's Shipped (as of 2026-04-05)
 
-A WebGL performance refactor is in progress. Spec at:
-`docs/superpowers/specs/2026-04-02-webgl-refactor-design.md`
+The WebGL refactor is done and on `main`. Current features:
+- WebGL instanced rendering via twgl.js (O(1) tile selection, prefix sums)
+- Pattern generation in a Web Worker
+- CRT post-processing effects (chroma, scanlines, barrel, vignette, grain, CRT mask)
+- Background image layer
+- Paint/erase mask with undo/redo
+- Tile exclusion by colour (per-tileset)
+- Live preview toggle + seed lock
+- Auto-save all settings + tilesets + background to localStorage
+- PNG export of current canvas
 
-Key goals:
-- Replace Canvas 2D render loop with WebGL instanced rendering (twgl.js)
-- Fix O(n²) tile selection → O(1) via prefix sums
-- Fix O(n) `findIndex` → O(1) via Map lookup
-- Move pattern generation to a Web Worker
-- Add live-preview toggle (real-time vs mouse-up) and dev-only FPS overlay
+Git tags: `v1` (WebGL MVP), `v2`, `v3-undo-redo`, `v4-exclude-colors`, `v5-crt-effects`, `v6-feature-roadmap`
+
+## Next Up — Feature Roadmap
+
+Plan at `docs/superpowers/plans/2026-04-05-feature-roadmap.md`.
+
+Phases in order:
+1. **JSON preset export/import** — download/upload all settings as `.json` (filenames only, not base64 images)
+2. **Docked side panel** — controls beside canvas instead of floating overlay; canvas resizes to compensate
+3. **Canvas zoom** — Cmd+scroll to zoom display (CSS transform, no re-render)
+4. **Aspect ratio / poster mode** — lock canvas to 1:1, 4:3, 16:9, 9:16, etc.
+5. **Print-quality export** — 1×/2×/4×/8× nearest-neighbor upscaling on export
 
 ## File Structure (post-refactor)
 
