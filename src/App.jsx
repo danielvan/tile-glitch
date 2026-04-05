@@ -72,7 +72,7 @@ function App() {
         const img = new Image();
         img.onload = () => {
           const newId = Date.now() + index;
-          setTilesets(prev => [...prev, { id: newId, url: event.target.result, img, excludeColors: [] }]);
+          setTilesets(prev => [...prev, { id: newId, url: event.target.result, img, name: file.name, excludeColors: [] }]);
           setTilesetWeights(prev => ({ ...prev, [newId]: 50 }));
         };
         img.src = event.target.result;
@@ -177,6 +177,63 @@ function App() {
     link.download = `tile-glitch-${Date.now()}.png`;
     link.href = canvasRef.current.toDataURL();
     link.click();
+  };
+
+  const exportPreset = () => {
+    const preset = {
+      version: 1,
+      chaos, coherence, normalize, scale, excludeTolerance,
+      circularMaskChance, disappearChance, backgroundColor,
+      animateMasks, animationSpeed, cycleTiles, livePreview,
+      seed, locked, tilesetWeights,
+      effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
+      tilesets: tilesets.map(t => ({
+        name: t.name ?? 'tileset',
+        weight: tilesetWeights[t.id] ?? 50,
+        excludeColors: t.excludeColors ?? [],
+      })),
+      background: bgUrl ? { name: 'background' } : null,
+    };
+    const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.download = `tile-glitch-preset-${Date.now()}.json`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const importPreset = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const p = JSON.parse(ev.target.result);
+        if (p.chaos              !== undefined) setChaos(p.chaos);
+        if (p.coherence          !== undefined) setCoherence(p.coherence);
+        if (p.normalize          !== undefined) setNormalize(p.normalize);
+        if (p.scale              !== undefined) setScale(p.scale);
+        if (p.excludeTolerance   !== undefined) setExcludeTolerance(p.excludeTolerance);
+        if (p.circularMaskChance !== undefined) setCircularMaskChance(p.circularMaskChance);
+        if (p.disappearChance    !== undefined) setDisappearChance(p.disappearChance);
+        if (p.backgroundColor    !== undefined) setBackgroundColor(p.backgroundColor);
+        if (p.animateMasks       !== undefined) setAnimateMasks(p.animateMasks);
+        if (p.animationSpeed     !== undefined) setAnimationSpeed(p.animationSpeed);
+        if (p.cycleTiles         !== undefined) setCycleTiles(p.cycleTiles);
+        if (p.livePreview        !== undefined) setLivePreview(p.livePreview);
+        if (p.seed               !== undefined) setSeed(p.seed);
+        if (p.locked             !== undefined) setLocked(p.locked);
+        if (p.tilesetWeights     !== undefined) setTilesetWeights(p.tilesetWeights);
+        if (p.effectChroma       !== undefined) setEffectChroma(p.effectChroma);
+        if (p.effectScanlines    !== undefined) setEffectScanlines(p.effectScanlines);
+        if (p.effectBarrel       !== undefined) setEffectBarrel(p.effectBarrel);
+        if (p.effectVignette     !== undefined) setEffectVignette(p.effectVignette);
+        if (p.effectGrain        !== undefined) setEffectGrain(p.effectGrain);
+        if (p.effectCRTMask      !== undefined) setEffectCRTMask(p.effectCRTMask);
+      } catch { /* malformed JSON — ignore */ }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
   };
 
   const tileCount = atlasData?.tiles.length ?? 0;
@@ -416,6 +473,16 @@ function App() {
               <button onClick={exportPattern} disabled={tileCount === 0}>
                 💾 Export PNG
               </button>
+
+              <button onClick={exportPreset}>
+                📋 Export Preset
+              </button>
+
+              <label className="btn-secondary" htmlFor="import-preset" style={{ textAlign: 'center', cursor: 'pointer' }}>
+                📂 Import Preset
+              </label>
+              <input id="import-preset" type="file" accept=".json" onChange={importPreset}
+                style={{ display: 'none' }} />
 
               {tileCount > 0 && (
                 <div className="info">📊 {tileCount} tiles loaded</div>
