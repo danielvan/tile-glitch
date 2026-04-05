@@ -41,6 +41,10 @@ function App() {
   const [paintMode, setPaintMode]                   = useState('paint');
   const [brushSize, setBrushSize]                   = useState(1);
   const [zoom, setZoom]                             = useState(1);
+  const [aspectRatio, setAspectRatio]               = useState(_s.aspectRatio ?? 'free');
+  const [cropOffset, setCropOffset]                 = useState({ x: 0, y: 0 });
+
+  const ASPECT_RATIOS = { '1:1': [1,1], '4:3': [4,3], '3:2': [3,2], '16:9': [16,9], '9:16': [9,16], '2:3': [2,3], '3:4': [3,4] };
 
   const PANEL_WIDTH = 230;
 
@@ -126,6 +130,44 @@ function App() {
     ));
   };
 
+  // Reset crop to center when ratio changes
+  useEffect(() => { setCropOffset({ x: 0, y: 0 }); }, [aspectRatio]);
+
+  const cropRect = useMemo(() => {
+    if (aspectRatio === 'free') return null;
+    const [wr, hr] = ASPECT_RATIOS[aspectRatio];
+    const s  = Math.min(canvasSize.width / wr, canvasSize.height / hr);
+    const w  = Math.round(wr * s);
+    const h  = Math.round(hr * s);
+    const maxX = Math.floor((canvasSize.width  - w) / 2);
+    const maxY = Math.floor((canvasSize.height - h) / 2);
+    const cx = Math.max(-maxX, Math.min(maxX, cropOffset.x));
+    const cy = Math.max(-maxY, Math.min(maxY, cropOffset.y));
+    return { x: maxX + cx, y: maxY + cy, width: w, height: h, maxX, maxY };
+  }, [aspectRatio, canvasSize, cropOffset]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startCropDrag = useCallback((e) => {
+    e.preventDefault();
+    let lastX = e.clientX;
+    let lastY = e.clientY;
+    const onMove = (ev) => {
+      const dx = ev.clientX - lastX;
+      const dy = ev.clientY - lastY;
+      lastX = ev.clientX; lastY = ev.clientY;
+      setCropOffset(o => {
+        const ratio = ASPECT_RATIOS[aspectRatio];
+        if (!ratio) return o;
+        const s  = Math.min(canvasSize.width / ratio[0], canvasSize.height / ratio[1]);
+        const maxX = Math.floor((canvasSize.width  - Math.round(ratio[0] * s)) / 2);
+        const maxY = Math.floor((canvasSize.height - Math.round(ratio[1] * s)) / 2);
+        return { x: Math.max(-maxX, Math.min(maxX, o.x + dx)), y: Math.max(-maxY, Math.min(maxY, o.y + dy)) };
+      });
+    };
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [aspectRatio, canvasSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const atlasData = useTileset(tilesets, excludeTolerance);
 
   const cols           = Math.floor(canvasSize.width  / (TILE_SIZE * scale));
@@ -172,6 +214,7 @@ function App() {
         effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
         tilesets: tilesets.map(t => ({ id: t.id, url: t.url, excludeColors: t.excludeColors ?? [] })),
         bgDataUrl: bgDataUrl ?? null,
+        aspectRatio,
       }));
     } catch { /* localStorage full — skip silently */ }
   }, [chaos, coherence, normalize, scale, excludeTolerance,
@@ -179,7 +222,7 @@ function App() {
       animateMasks, animationSpeed, cycleTiles, livePreview,
       seed, locked, tilesetWeights,
       effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
-      tilesets, bgDataUrl]);
+      tilesets, bgDataUrl, aspectRatio]);
 
   const handleChange    = (setter) => (e) => setter(Number(e.target.value));
   const handlePointerUp = useCallback(() => {
@@ -193,9 +236,22 @@ function App() {
   }, [generate]);
 
   const exportPattern = () => {
+    const src = canvasRef.current;
+    let href;
+    if (cropRect) {
+      const out = document.createElement('canvas');
+      out.width  = cropRect.width;
+      out.height = cropRect.height;
+      const ctx  = out.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(src, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
+      href = out.toDataURL();
+    } else {
+      href = src.toDataURL();
+    }
     const link = document.createElement('a');
     link.download = `tile-glitch-${Date.now()}.png`;
-    link.href = canvasRef.current.toDataURL();
+    link.href = href;
     link.click();
   };
 
@@ -480,6 +536,18 @@ function App() {
 
               <div className="section-divider" />
 
+              <div className="section-header">Canvas</div>
+              <div className="aspect-grid">
+                {['free', '1:1', '4:3', '3:2', '16:9', '9:16', '2:3', '3:4'].map(r => (
+                  <button key={r} className={`toggle-btn ${aspectRatio === r ? 'active' : ''}`}
+                    onClick={() => setAspectRatio(r)}>
+                    {r === 'free' ? 'Free' : r}
+                  </button>
+                ))}
+              </div>
+
+              <div className="section-divider" />
+
               <div className="control-group checkbox">
                 <label>
                   <input type="checkbox" checked={livePreview}
@@ -531,6 +599,13 @@ function App() {
                 }}
               />
             )}
+            {cropRect && (<>
+              <div className="crop-overlay" style={{ left: cropRect.x, top: cropRect.y, width: cropRect.width, height: cropRect.height }} />
+              <div className="crop-drag-strip" style={{ left: 0, top: 0, width: canvasSize.width, height: cropRect.y }} onPointerDown={startCropDrag} />
+              <div className="crop-drag-strip" style={{ left: 0, top: cropRect.y + cropRect.height, width: canvasSize.width, height: canvasSize.height - cropRect.y - cropRect.height }} onPointerDown={startCropDrag} />
+              <div className="crop-drag-strip" style={{ left: 0, top: cropRect.y, width: cropRect.x, height: cropRect.height }} onPointerDown={startCropDrag} />
+              <div className="crop-drag-strip" style={{ left: cropRect.x + cropRect.width, top: cropRect.y, width: canvasSize.width - cropRect.x - cropRect.width, height: cropRect.height }} onPointerDown={startCropDrag} />
+            </>)}
           </div>
           {import.meta.env.DEV && animateMasks && fps !== null && (
             <div style={{
