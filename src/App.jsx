@@ -190,7 +190,7 @@ function App() {
   const { maskTextureRef, maskVersion, resetMask, brushPreview, undo, redo, canUndo, canRedo } =
     useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushSize);
 
-  const fps = useWebGLRenderer(canvasRef, atlasData, instanceData, {
+  const { fps, captureFrame } = useWebGLRenderer(canvasRef, atlasData, instanceData, {
     backgroundColor, scale, canvasSize, animateMasks, animationSpeed,
     bgImage, maskTextureRef, maskVersion,
     effects: {
@@ -236,16 +236,10 @@ function App() {
   }, [generate]);
 
   const exportPattern = () => {
-    const canvas   = canvasRef.current;
+    const frame = captureFrame();
+    if (!frame) return;
+    const { pixels, width: cw, height: ch } = frame;
     const filename = `tile-glitch-${Date.now()}.png`;
-    const cw = canvas.width;
-    const ch = canvas.height;
-
-    // gl.readPixels is the most reliable way to read a WebGL framebuffer.
-    // WebGL origin is bottom-left so we Y-flip into a 2D canvas first.
-    const gl      = canvas.getContext('webgl2');
-    const pixels  = new Uint8Array(cw * ch * 4);
-    gl.readPixels(0, 0, cw, ch, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
     const full    = document.createElement('canvas');
     full.width    = cw;

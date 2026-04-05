@@ -62,6 +62,7 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
   const postProgramInfoRef = useRef(null);
   const postVaoRef         = useRef(null);
   const [fps, setFps]      = useState(null);
+  const drawRef            = useRef(null);
 
   // --- Initialize tile WebGL program + VAO once ---
   useEffect(() => {
@@ -250,7 +251,7 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     const gl = glRef.current;
     if (!gl || !programInfoRef.current) return;
 
-    const draw = (timestamp) => {
+    const draw = drawRef.current = (timestamp) => {
       if (!fboRef.current || !fboTexRef.current || !postProgramInfoRef.current) return;
 
       // --- Render scene to FBO ---
@@ -347,5 +348,16 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
       instanceData, bgImage, maskVersion, maskTextureRef,
       chroma, scanlines, barrel, vignette, grain, crtMask]);
 
-  return fps;
+  const captureFrame = () => {
+    const gl = glRef.current;
+    if (!gl || !drawRef.current) return null;
+    drawRef.current(0);
+    gl.finish();
+    const { width, height } = gl.canvas;
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return { pixels, width, height };
+  };
+
+  return { fps, captureFrame };
 }
