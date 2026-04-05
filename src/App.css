@@ -278,7 +278,8 @@ button:disabled {
   border: 1px solid var(--border);
 }
 
-.paint-toggle {
+.paint-toggle,
+.toggle-row {
   display: flex;
   gap: 0.3rem;
 }

@@ -42,6 +42,7 @@ function App() {
   const [brushSize, setBrushSize]                   = useState(1);
   const [zoom, setZoom]                             = useState(1);
   const [aspectRatio, setAspectRatio]               = useState(_s.aspectRatio ?? 'free');
+  const [exportScale, setExportScale]               = useState(1);
   const [cropOffset, setCropOffset]                 = useState({ x: 0, y: 0 });
 
   const ASPECT_RATIOS = { '1:1': [1,1], '4:3': [4,3], '3:2': [3,2], '16:9': [16,9], '9:16': [9,16], '2:3': [2,3], '3:4': [3,4] };
@@ -239,11 +240,12 @@ function App() {
     const frame = captureFrame();
     if (!frame) return;
     const { pixels, width: cw, height: ch } = frame;
-    const filename = `tile-glitch-${Date.now()}.png`;
+    const scaleTag = exportScale > 1 ? `-${exportScale}x` : '';
+    const filename = `tile-glitch-${Date.now()}${scaleTag}.png`;
 
-    const full    = document.createElement('canvas');
-    full.width    = cw;
-    full.height   = ch;
+    const full = document.createElement('canvas');
+    full.width  = cw;
+    full.height = ch;
     const fctx    = full.getContext('2d');
     const imgData = fctx.createImageData(cw, ch);
     for (let row = 0; row < ch; row++) {
@@ -254,20 +256,18 @@ function App() {
     }
     fctx.putImageData(imgData, 0, 0);
 
-    if (!cropRect) {
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = full.toDataURL();
-      link.click();
-      return;
-    }
+    const sx = cropRect ? cropRect.x      : 0;
+    const sy = cropRect ? cropRect.y      : 0;
+    const sw = cropRect ? cropRect.width  : cw;
+    const sh = cropRect ? cropRect.height : ch;
 
-    const out  = document.createElement('canvas');
-    out.width  = cropRect.width;
-    out.height = cropRect.height;
-    const ctx  = out.getContext('2d');
+    const out = document.createElement('canvas');
+    out.width  = sw * exportScale;
+    out.height = sh * exportScale;
+    const ctx = out.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(full, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
+    ctx.drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height);
+
     const link = document.createElement('a');
     link.download = filename;
     link.href = out.toDataURL();
@@ -578,6 +578,18 @@ function App() {
               <button onClick={() => generate()} disabled={tileCount === 0 || locked}>
                 🎲 Regenerate
               </button>
+
+              <div className="control-group">
+                <label>Export Scale</label>
+                <div className="toggle-row">
+                  {[1, 2, 4, 8].map(s => (
+                    <button key={s} className={`toggle-btn ${exportScale === s ? 'active' : ''}`}
+                      onClick={() => setExportScale(s)}>
+                      {s}×
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <button onClick={exportPattern} disabled={tileCount === 0}>
                 💾 Export PNG
