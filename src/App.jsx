@@ -236,23 +236,32 @@ function App() {
   }, [generate]);
 
   const exportPattern = () => {
-    const src = canvasRef.current;
-    let href;
-    if (cropRect) {
+    const src      = canvasRef.current;
+    const filename = `tile-glitch-${Date.now()}.png`;
+    if (!cropRect) {
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = src.toDataURL();
+      link.click();
+      return;
+    }
+    // drawImage(webglCanvas) into a 2D context doesn't reliably read the buffer.
+    // Read via toDataURL first, then decode and crop from the Image.
+    const dataUrl = src.toDataURL();
+    const img     = new Image();
+    img.onload = () => {
       const out = document.createElement('canvas');
       out.width  = cropRect.width;
       out.height = cropRect.height;
       const ctx  = out.getContext('2d');
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(src, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
-      href = out.toDataURL();
-    } else {
-      href = src.toDataURL();
-    }
-    const link = document.createElement('a');
-    link.download = `tile-glitch-${Date.now()}.png`;
-    link.href = href;
-    link.click();
+      ctx.drawImage(img, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = out.toDataURL();
+      link.click();
+    };
+    img.src = dataUrl;
   };
 
   const exportPreset = () => {
