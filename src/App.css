@@ -67,9 +67,10 @@ body {
   border-radius: 0;
   border-top: none;
   border-bottom: none;
-  border-left: none;
+  border-right: none;
   flex-shrink: 0;
   box-shadow: none;
+  order: 2;
 }
 
 .controls.minimized {
