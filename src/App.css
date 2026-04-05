@@ -333,22 +333,24 @@ canvas {
   bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.7);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+  background: rgba(20, 20, 22, 0.92);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.8rem;
   font-size: 11px;
   font-family: monospace;
   cursor: pointer;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
   z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-.zoom-reset:hover {
+.zoom-reset:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(20, 20, 22, 0.98);
   transform: translateX(-50%);
+  opacity: 1;
 }
 
 .brush-preview {
