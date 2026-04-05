@@ -1,38 +1,52 @@
 // src/hooks/useBackgroundImage.js
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 /**
  * Manages a user-uploaded background image.
+ * Uses data URLs (not object URLs) so the image can be persisted to localStorage.
  *
  * Returns:
  *   bgImage:          HTMLImageElement | null
- *   bgUrl:            string | null  (object URL, for thumbnail <img>)
+ *   bgUrl:            string | null  (data URL, for thumbnail <img>)
+ *   bgDataUrl:        string | null  (same as bgUrl, for saving)
  *   handleBgUpload:   (e: InputEvent) => void
  *   clearBackground:  () => void
  */
-export function useBackgroundImage() {
-  const [bgImage, setBgImage] = useState(null);
-  const [bgUrl,   setBgUrl]   = useState(null);
+export function useBackgroundImage(initialDataUrl = null) {
+  const [bgImage,   setBgImage]   = useState(null);
+  const [bgDataUrl, setBgDataUrl] = useState(null);
+
+  // Restore from saved data URL on mount
+  useEffect(() => {
+    if (!initialDataUrl) return;
+    const img = new Image();
+    img.onload = () => {
+      setBgImage(img);
+      setBgDataUrl(initialDataUrl);
+    };
+    img.src = initialDataUrl;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBgUpload = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      setBgImage(img);
-      setBgUrl(url);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target.result;
+      const img = new Image();
+      img.onload = () => {
+        setBgImage(img);
+        setBgDataUrl(dataUrl);
+      };
+      img.src = dataUrl;
     };
-    img.src = url;
+    reader.readAsDataURL(file);
   }, []);
 
   const clearBackground = useCallback(() => {
     setBgImage(null);
-    setBgUrl(prev => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
+    setBgDataUrl(null);
   }, []);
 
-  return { bgImage, bgUrl, handleBgUpload, clearBackground };
+  return { bgImage, bgUrl: bgDataUrl, bgDataUrl, handleBgUpload, clearBackground };
 }

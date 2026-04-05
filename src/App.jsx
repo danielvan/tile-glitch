@@ -21,7 +21,7 @@ function App() {
   const [normalize, setNormalize]                   = useState(_s.normalize ?? 50);
   const [scale, setScale]                           = useState(_s.scale ?? 1);
   const [excludeTolerance, setExcludeTolerance]     = useState(_s.excludeTolerance ?? 8);
-  const [tilesetWeights, setTilesetWeights]         = useState({});
+  const [tilesetWeights, setTilesetWeights]         = useState(_s.tilesetWeights ?? {});
   const [cycleTiles, setCycleTiles]                 = useState(_s.cycleTiles ?? false);
   const [circularMaskChance, setCircularMaskChance] = useState(_s.circularMaskChance ?? 0);
   const [disappearChance, setDisappearChance]       = useState(_s.disappearChance ?? 0);
@@ -48,6 +48,20 @@ function App() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // Restore tilesets from saved data URLs on mount
+  useEffect(() => {
+    const saved = _s.tilesets;
+    if (!saved?.length) return;
+    Promise.all(saved.map(t => new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve({ ...t, img });
+      img.onerror = () => resolve(null);
+      img.src = t.url;
+    }))).then(results => {
+      setTilesets(results.filter(Boolean));
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
@@ -109,7 +123,7 @@ function App() {
 
   const { instanceData, generate } = usePatternGenerator(atlasData, settings, livePreview, locked);
 
-  const { bgImage, bgUrl, handleBgUpload, clearBackground } = useBackgroundImage();
+  const { bgImage, bgUrl, bgDataUrl, handleBgUpload, clearBackground } = useBackgroundImage(_s.bgDataUrl ?? null);
 
   const { maskTextureRef, maskVersion, resetMask, brushPreview, undo, redo, canUndo, canRedo } =
     useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushSize);
@@ -127,20 +141,25 @@ function App() {
     },
   });
 
-  // Auto-save all settings to localStorage
+  // Auto-save all settings + tilesets + background to localStorage
   useEffect(() => {
-    localStorage.setItem('tile-glitch', JSON.stringify({
-      chaos, coherence, normalize, scale, excludeTolerance,
-      circularMaskChance, disappearChance, backgroundColor,
-      animateMasks, animationSpeed, cycleTiles, livePreview,
-      seed, locked,
-      effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
-    }));
+    try {
+      localStorage.setItem('tile-glitch', JSON.stringify({
+        chaos, coherence, normalize, scale, excludeTolerance,
+        circularMaskChance, disappearChance, backgroundColor,
+        animateMasks, animationSpeed, cycleTiles, livePreview,
+        seed, locked, tilesetWeights,
+        effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
+        tilesets: tilesets.map(t => ({ id: t.id, url: t.url, excludeColors: t.excludeColors ?? [] })),
+        bgDataUrl: bgDataUrl ?? null,
+      }));
+    } catch { /* localStorage full — skip silently */ }
   }, [chaos, coherence, normalize, scale, excludeTolerance,
       circularMaskChance, disappearChance, backgroundColor,
       animateMasks, animationSpeed, cycleTiles, livePreview,
-      seed, locked,
-      effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask]);
+      seed, locked, tilesetWeights,
+      effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
+      tilesets, bgDataUrl]);
 
   const handleChange    = (setter) => (e) => setter(Number(e.target.value));
   const handlePointerUp = useCallback(() => {
