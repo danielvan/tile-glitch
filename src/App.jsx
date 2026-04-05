@@ -236,32 +236,48 @@ function App() {
   }, [generate]);
 
   const exportPattern = () => {
-    const src      = canvasRef.current;
+    const canvas   = canvasRef.current;
     const filename = `tile-glitch-${Date.now()}.png`;
+    const cw = canvas.width;
+    const ch = canvas.height;
+
+    // gl.readPixels is the most reliable way to read a WebGL framebuffer.
+    // WebGL origin is bottom-left so we Y-flip into a 2D canvas first.
+    const gl      = canvas.getContext('webgl2');
+    const pixels  = new Uint8Array(cw * ch * 4);
+    gl.readPixels(0, 0, cw, ch, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    const full    = document.createElement('canvas');
+    full.width    = cw;
+    full.height   = ch;
+    const fctx    = full.getContext('2d');
+    const imgData = fctx.createImageData(cw, ch);
+    for (let row = 0; row < ch; row++) {
+      imgData.data.set(
+        pixels.subarray((ch - 1 - row) * cw * 4, (ch - row) * cw * 4),
+        row * cw * 4,
+      );
+    }
+    fctx.putImageData(imgData, 0, 0);
+
     if (!cropRect) {
       const link = document.createElement('a');
       link.download = filename;
-      link.href = src.toDataURL();
+      link.href = full.toDataURL();
       link.click();
       return;
     }
-    // drawImage(webglCanvas) into a 2D context doesn't reliably read the buffer.
-    // Read via toDataURL first, then decode and crop from the Image.
-    const dataUrl = src.toDataURL();
-    const img     = new Image();
-    img.onload = () => {
-      const out = document.createElement('canvas');
-      out.width  = cropRect.width;
-      out.height = cropRect.height;
-      const ctx  = out.getContext('2d');
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = out.toDataURL();
-      link.click();
-    };
-    img.src = dataUrl;
+
+    const out  = document.createElement('canvas');
+    out.width  = cropRect.width;
+    out.height = cropRect.height;
+    const ctx  = out.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(full, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = out.toDataURL();
+    link.click();
   };
 
   const exportPreset = () => {
