@@ -23,6 +23,16 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
   const oldDimsRef     = useRef(null);   // { cols, rows } from previous allocation
   const isPaintingRef  = useRef(false);
 
+  // Load saved mask once on mount
+  const restoredMaskRef = useRef((() => {
+    try {
+      const raw = localStorage.getItem('tile-glitch-mask');
+      if (!raw) return null;
+      const { cols: sc, rows: sr, data } = JSON.parse(raw);
+      return { cols: sc, rows: sr, data: Uint8Array.from(atob(data), c => c.charCodeAt(0)) };
+    } catch { return null; }
+  })());
+
   const MAX_HISTORY     = 20;
   const historyRef      = useRef([]);
   const historyIndexRef = useRef(-1);
@@ -89,6 +99,21 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
           newMask[r * cols + c] = old[sr * oc + sc];
         }
       }
+    } else if (restoredMaskRef.current) {
+      // First load — restore saved mask, scaling if dimensions differ
+      const { cols: sc, rows: sr, data } = restoredMaskRef.current;
+      if (sc === cols && sr === rows) {
+        newMask.set(data);
+      } else {
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const srcC = Math.min(Math.round(c / cols * sc), sc - 1);
+            const srcR = Math.min(Math.round(r / rows * sr), sr - 1);
+            newMask[r * cols + c] = data[srcR * sc + srcC];
+          }
+        }
+      }
+      restoredMaskRef.current = null;
     }
 
     historyRef.current      = [];
@@ -113,6 +138,17 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, newMask);
     setMaskVersion(v => v + 1);
   }, [canvasRef, cols, rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist mask to localStorage after every change
+  useEffect(() => {
+    if (!maskArrayRef.current || !oldDimsRef.current) return;
+    const { cols: c, rows: r } = oldDimsRef.current;
+    let b64 = '';
+    for (let i = 0; i < maskArrayRef.current.length; i++) b64 += String.fromCharCode(maskArrayRef.current[i]);
+    try {
+      localStorage.setItem('tile-glitch-mask', JSON.stringify({ cols: c, rows: r, data: btoa(b64) }));
+    } catch { /* storage full — skip */ }
+  }, [maskVersion]);
 
   // Paint cells at (clientX, clientY) according to current mode and brush
   const paintAt = useCallback((clientX, clientY) => {
