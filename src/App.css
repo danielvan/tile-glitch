@@ -29,7 +29,7 @@ body {
 }
 
 .container {
-  position: relative;
+  display: flex;
   width: 100%;
   height: 100%;
 }
@@ -55,7 +55,21 @@ body {
   line-height: 1.4;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-mid) transparent;
-  transition: all 0.25s ease;
+}
+
+.controls.docked {
+  position: relative;
+  top: unset;
+  right: unset;
+  width: 230px;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  flex-shrink: 0;
+  box-shadow: none;
 }
 
 .controls.minimized {
@@ -63,6 +77,16 @@ body {
   height: 44px;
   overflow: hidden;
   padding: 0.4rem;
+}
+
+.controls.docked.minimized {
+  width: 44px;
+  height: 100vh;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 0.3rem;
 }
 
 .minimize-btn {
@@ -290,11 +314,10 @@ button:disabled {
 }
 
 .canvas-wrapper {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
+  position: relative;
+  flex: 1;
   height: 100%;
+  overflow: hidden;
 }
 
 canvas {

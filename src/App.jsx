@@ -40,14 +40,21 @@ function App() {
   const [effectCRTMask,   setEffectCRTMask]   = useState(_s.effectCRTMask   ?? 0);
   const [paintMode, setPaintMode]                   = useState('paint');
   const [brushSize, setBrushSize]                   = useState(1);
+  const [dockedPanel, setDockedPanel]               = useState(_s.dockedPanel ?? false);
+
+  const PANEL_WIDTH = 230;
 
   const canvasRef = useRef(null);
 
   useEffect(() => {
-    const onResize = () => setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
+    const onResize = () => setCanvasSize({
+      width:  dockedPanel ? window.innerWidth - PANEL_WIDTH : window.innerWidth,
+      height: window.innerHeight,
+    });
+    onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
+  }, [dockedPanel]);
 
   // Restore tilesets from saved data URLs on mount
   useEffect(() => {
@@ -152,6 +159,7 @@ function App() {
         effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
         tilesets: tilesets.map(t => ({ id: t.id, url: t.url, excludeColors: t.excludeColors ?? [] })),
         bgDataUrl: bgDataUrl ?? null,
+        dockedPanel,
       }));
     } catch { /* localStorage full — skip silently */ }
   }, [chaos, coherence, normalize, scale, excludeTolerance,
@@ -159,7 +167,7 @@ function App() {
       animateMasks, animationSpeed, cycleTiles, livePreview,
       seed, locked, tilesetWeights,
       effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
-      tilesets, bgDataUrl]);
+      tilesets, bgDataUrl, dockedPanel]);
 
   const handleChange    = (setter) => (e) => setter(Number(e.target.value));
   const handlePointerUp = useCallback(() => {
@@ -241,14 +249,23 @@ function App() {
   return (
     <div className="app">
       <div className="container">
-        <div className={`controls ${minimizeUI ? 'minimized' : ''}`}>
-          <button
-            className="minimize-btn"
-            onClick={() => setMinimizeUI(!minimizeUI)}
-            title={minimizeUI ? 'Show controls' : 'Hide controls'}
-          >
-            {minimizeUI ? '▼' : '▲'}
-          </button>
+        <div className={`controls ${minimizeUI ? 'minimized' : ''} ${dockedPanel ? 'docked' : ''}`}>
+          <div className="panel-actions">
+            <button
+              className="minimize-btn"
+              onClick={() => setMinimizeUI(!minimizeUI)}
+              title={minimizeUI ? 'Show controls' : 'Hide controls'}
+            >
+              {minimizeUI ? '▼' : '▲'}
+            </button>
+            <button
+              className="minimize-btn"
+              onClick={() => setDockedPanel(d => !d)}
+              title={dockedPanel ? 'Float panel' : 'Dock panel'}
+            >
+              {dockedPanel ? '⇥' : '⇤'}
+            </button>
+          </div>
 
           {!minimizeUI && (
             <>
