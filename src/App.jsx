@@ -40,10 +40,24 @@ function App() {
   const [effectCRTMask,   setEffectCRTMask]   = useState(_s.effectCRTMask   ?? 0);
   const [paintMode, setPaintMode]                   = useState('paint');
   const [brushSize, setBrushSize]                   = useState(1);
+  const [zoom, setZoom]                             = useState(1);
 
   const PANEL_WIDTH = 230;
 
-  const canvasRef = useRef(null);
+  const canvasRef  = useRef(null);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    const onWheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoom(z => Math.min(4, Math.max(0.25, +(z - e.deltaY * 0.001).toFixed(3))));
+    };
+    wrapper.addEventListener('wheel', onWheel, { passive: false });
+    return () => wrapper.removeEventListener('wheel', onWheel);
+  }, []);
 
   useEffect(() => {
     const onResize = () => setCanvasSize({
@@ -499,23 +513,25 @@ function App() {
           )}
         </div>
 
-        <div className="canvas-wrapper">
-          <canvas
-            ref={canvasRef}
-            width={canvasSize.width}
-            height={canvasSize.height}
-          />
-          {brushPreview && tileCount > 0 && (
-            <div
-              className="brush-preview"
-              style={{
-                left:   `${(brushPreview.col - brushPreview.size) * scaledTileSize}px`,
-                top:    `${(brushPreview.row - brushPreview.size) * scaledTileSize}px`,
-                width:  `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
-                height: `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
-              }}
+        <div className="canvas-wrapper" ref={wrapperRef}>
+          <div style={{ transformOrigin: '0 0', transform: `scale(${zoom})`, display: 'inline-block', lineHeight: 0 }}>
+            <canvas
+              ref={canvasRef}
+              width={canvasSize.width}
+              height={canvasSize.height}
             />
-          )}
+            {brushPreview && tileCount > 0 && (
+              <div
+                className="brush-preview"
+                style={{
+                  left:   `${(brushPreview.col - brushPreview.size) * scaledTileSize}px`,
+                  top:    `${(brushPreview.row - brushPreview.size) * scaledTileSize}px`,
+                  width:  `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
+                  height: `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
+                }}
+              />
+            )}
+          </div>
           {import.meta.env.DEV && animateMasks && fps !== null && (
             <div style={{
               position: 'absolute', top: 8, right: 8,
@@ -526,6 +542,14 @@ function App() {
             }}>
               {fps} fps
             </div>
+          )}
+          {zoom !== 1 && (
+            <button
+              className="zoom-reset"
+              onClick={() => setZoom(1)}
+            >
+              {Math.round(zoom * 100)}% ↺
+            </button>
           )}
         </div>
       </div>
