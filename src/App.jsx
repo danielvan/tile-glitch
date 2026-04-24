@@ -1,21 +1,94 @@
-// src/App.jsx
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import './App.css';
-import { useTileset }           from './hooks/useTileset.js';
-import { usePatternGenerator }  from './hooks/usePatternGenerator.js';
-import { useWebGLRenderer }     from './hooks/useWebGLRenderer.js';
-import { useBackgroundImage }   from './hooks/useBackgroundImage.js';
-import { useMask }              from './hooks/useMask.js';
-import { TILE_SIZE }            from './webgl/constants.js';
+import { useTileset }          from './hooks/useTileset.js';
+import { usePatternGenerator } from './hooks/usePatternGenerator.js';
+import { useWebGLRenderer }    from './hooks/useWebGLRenderer.js';
+import { useBackgroundImage }  from './hooks/useBackgroundImage.js';
+import { useMask }             from './hooks/useMask.js';
+import { TILE_SIZE }           from './webgl/constants.js';
 
+// ── Icons ──────────────────────────────────────────────────────────────────
+const IconX = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
+    <line x1="1" y1="1" x2="11" y2="11" />
+    <line x1="11" y1="1" x2="1" y2="11" />
+  </svg>
+);
+
+const IconChevronLeft = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
+    <polyline points="8,2 4,6 8,10" />
+  </svg>
+);
+
+const IconChevronRight = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
+    <polyline points="4,2 8,6 4,10" />
+  </svg>
+);
+
+const IconLock = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="miter">
+    <rect x="3" y="7" width="10" height="8" />
+    <rect x="5" y="2" width="6" height="5" />
+  </svg>
+);
+
+const IconRefresh = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="square" strokeLinejoin="miter">
+    <path d="M13.5 8A5.5 5.5 0 1 1 10.2 3" />
+    <polyline points="14,1 11,4 14,7" />
+  </svg>
+);
+
+const IconTrash = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" strokeLinejoin="miter">
+    <rect x="2" y="4" width="10" height="9" />
+    <line x1="0" y1="3" x2="14" y2="3" />
+    <line x1="5" y1="1" x2="9" y2="1" />
+  </svg>
+);
+
+// ── Sub-components ─────────────────────────────────────────────────────────
+function SettingGroup({ label, value, displayValue, min, max, step = 1, onChange, onPointerUp, inv }) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return (
+    <div className="setting-group">
+      <div className="setting-heading">
+        <span className="setting-name">{label}</span>
+        <span className="setting-value">{displayValue ?? value}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={onChange} onPointerUp={onPointerUp}
+        className={`slider${inv ? ' slider-inv' : ''}`}
+        style={{ '--pct': `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <label className="toggle-row">
+      <span className={`toggle-indicator${checked ? ' on' : ''}`}>
+        {checked && <IconX />}
+      </span>
+      <span className="toggle-label">{label}</span>
+      <input type="checkbox" checked={checked} onChange={onChange} />
+    </label>
+  );
+}
+
+// ── Saved state ────────────────────────────────────────────────────────────
 function loadSaved() {
   try { return JSON.parse(localStorage.getItem('tile-glitch') ?? '{}'); } catch { return {}; }
 }
 const _s = loadSaved();
 
+// ── App ────────────────────────────────────────────────────────────────────
 function App() {
   const [tilesets, setTilesets]                     = useState([]);
-  const [canvasSize, setCanvasSize]                 = useState({ width: window.innerWidth, height: window.innerHeight });
   const [chaos, setChaos]                           = useState(_s.chaos ?? 50);
   const [coherence, setCoherence]                   = useState(_s.coherence ?? 50);
   const [normalize, setNormalize]                   = useState(_s.normalize ?? 50);
@@ -45,12 +118,26 @@ function App() {
   const [exportScale, setExportScale]               = useState(1);
   const [cropOffset, setCropOffset]                 = useState({ x: 0, y: 0 });
 
-  const ASPECT_RATIOS = { '1:1': [1,1], '4:3': [4,3], '3:2': [3,2], '16:9': [16,9], '9:16': [9,16], '2:3': [2,3], '3:4': [3,4] };
+  const ASPECT_RATIOS = useMemo(() => ({
+    '1:1': [1,1], '4:3': [4,3], '3:2': [3,2], '16:9': [16,9],
+    '9:16': [9,16], '2:3': [2,3], '3:4': [3,4],
+  }), []);
 
-  const PANEL_WIDTH = 230;
+  const PANEL_WIDTH = minimizeUI ? 40 : 232;
 
   const canvasRef  = useRef(null);
   const wrapperRef = useRef(null);
+  const [canvasSize, setCanvasSize] = useState({
+    width: window.innerWidth - PANEL_WIDTH,
+    height: window.innerHeight,
+  });
+
+  useEffect(() => {
+    const update = () => setCanvasSize({ width: window.innerWidth - PANEL_WIDTH, height: window.innerHeight });
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [PANEL_WIDTH]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -65,27 +152,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const onResize = () => setCanvasSize({
-      width:  window.innerWidth - PANEL_WIDTH,
-      height: window.innerHeight,
-    });
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Restore tilesets from saved data URLs on mount
-  useEffect(() => {
     const saved = _s.tilesets;
     if (!saved?.length) return;
     Promise.all(saved.map(t => new Promise(resolve => {
       const img = new Image();
-      img.onload = () => resolve({ ...t, img });
+      img.onload  = () => resolve({ ...t, img });
       img.onerror = () => resolve(null);
       img.src = t.url;
-    }))).then(results => {
-      setTilesets(results.filter(Boolean));
-    });
+    }))).then(results => setTilesets(results.filter(Boolean)));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileUpload = (e) => {
@@ -97,7 +171,8 @@ function App() {
         const img = new Image();
         img.onload = () => {
           const newId = Date.now() + index;
-          setTilesets(prev => [...prev, { id: newId, url: event.target.result, img, name: file.name, excludeColors: [] }]);
+          const name = file.name.replace(/\.[^.]+$/, '');
+          setTilesets(prev => [...prev, { id: newId, url: event.target.result, img, name, excludeColors: [] }]);
           setTilesetWeights(prev => ({ ...prev, [newId]: 50 }));
         };
         img.src = event.target.result;
@@ -106,59 +181,39 @@ function App() {
     });
   };
 
-  const removeTileset = (id) => {
+  const removeTileset      = (id) => {
     setTilesets(prev => prev.filter(t => t.id !== id));
     setTilesetWeights(prev => { const n = { ...prev }; delete n[id]; return n; });
   };
+  const addExcludeColor    = (id) => setTilesets(prev => prev.map(t => t.id === id ? { ...t, excludeColors: [...t.excludeColors, '#00ff00'] } : t));
+  const removeExcludeColor = (id, i) => setTilesets(prev => prev.map(t => t.id === id ? { ...t, excludeColors: t.excludeColors.filter((_, j) => j !== i) } : t));
+  const updateExcludeColor = (id, i, hex) => setTilesets(prev => prev.map(t => t.id === id ? { ...t, excludeColors: t.excludeColors.map((c, j) => j === i ? hex : c) } : t));
 
-  const addExcludeColor = (id) => {
-    setTilesets(prev => prev.map(t =>
-      t.id === id ? { ...t, excludeColors: [...t.excludeColors, '#00ff00'] } : t
-    ));
-  };
-
-  const removeExcludeColor = (id, index) => {
-    setTilesets(prev => prev.map(t =>
-      t.id === id ? { ...t, excludeColors: t.excludeColors.filter((_, i) => i !== index) } : t
-    ));
-  };
-
-  const updateExcludeColor = (id, index, hex) => {
-    setTilesets(prev => prev.map(t =>
-      t.id === id
-        ? { ...t, excludeColors: t.excludeColors.map((c, i) => i === index ? hex : c) }
-        : t
-    ));
-  };
-
-  // Reset crop to center when ratio changes
   useEffect(() => { setCropOffset({ x: 0, y: 0 }); }, [aspectRatio]);
 
   const cropRect = useMemo(() => {
     if (aspectRatio === 'free') return null;
     const [wr, hr] = ASPECT_RATIOS[aspectRatio];
-    const s  = Math.min(canvasSize.width / wr, canvasSize.height / hr);
-    const w  = Math.round(wr * s);
-    const h  = Math.round(hr * s);
+    const s   = Math.min(canvasSize.width / wr, canvasSize.height / hr);
+    const w   = Math.round(wr * s);
+    const h   = Math.round(hr * s);
     const maxX = Math.floor((canvasSize.width  - w) / 2);
     const maxY = Math.floor((canvasSize.height - h) / 2);
-    const cx = Math.max(-maxX, Math.min(maxX, cropOffset.x));
-    const cy = Math.max(-maxY, Math.min(maxY, cropOffset.y));
+    const cx  = Math.max(-maxX, Math.min(maxX, cropOffset.x));
+    const cy  = Math.max(-maxY, Math.min(maxY, cropOffset.y));
     return { x: maxX + cx, y: maxY + cy, width: w, height: h, maxX, maxY };
-  }, [aspectRatio, canvasSize, cropOffset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [aspectRatio, canvasSize, cropOffset, ASPECT_RATIOS]);
 
   const startCropDrag = useCallback((e) => {
     e.preventDefault();
-    let lastX = e.clientX;
-    let lastY = e.clientY;
+    let lastX = e.clientX, lastY = e.clientY;
     const onMove = (ev) => {
-      const dx = ev.clientX - lastX;
-      const dy = ev.clientY - lastY;
+      const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
       lastX = ev.clientX; lastY = ev.clientY;
       setCropOffset(o => {
         const ratio = ASPECT_RATIOS[aspectRatio];
         if (!ratio) return o;
-        const s  = Math.min(canvasSize.width / ratio[0], canvasSize.height / ratio[1]);
+        const s    = Math.min(canvasSize.width / ratio[0], canvasSize.height / ratio[1]);
         const maxX = Math.floor((canvasSize.width  - Math.round(ratio[0] * s)) / 2);
         const maxY = Math.floor((canvasSize.height - Math.round(ratio[1] * s)) / 2);
         return { x: Math.max(-maxX, Math.min(maxX, o.x + dx)), y: Math.max(-maxY, Math.min(maxY, o.y + dy)) };
@@ -167,17 +222,15 @@ function App() {
     const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  }, [aspectRatio, canvasSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [aspectRatio, canvasSize, ASPECT_RATIOS]);
 
-  const atlasData = useTileset(tilesets, excludeTolerance);
-
+  const atlasData      = useTileset(tilesets, excludeTolerance);
   const cols           = Math.floor(canvasSize.width  / (TILE_SIZE * scale));
   const rows           = Math.floor(canvasSize.height / (TILE_SIZE * scale));
   const scaledTileSize = TILE_SIZE * scale;
 
   const settings = useMemo(() => ({
-    cols, rows,
-    scaledTileSize,
+    cols, rows, scaledTileSize,
     chaos, coherence, normalize,
     circularMaskChance, disappearChance,
     cycleTiles, tilesetWeights, seed,
@@ -185,9 +238,7 @@ function App() {
        circularMaskChance, disappearChance, cycleTiles, tilesetWeights, seed]);
 
   const { instanceData, generate } = usePatternGenerator(atlasData, settings, livePreview, locked);
-
   const { bgImage, bgUrl, bgDataUrl, handleBgUpload, clearBackground } = useBackgroundImage(_s.bgDataUrl ?? null);
-
   const { maskTextureRef, maskVersion, resetMask, brushPreview, undo, redo, canUndo, canRedo } =
     useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushSize);
 
@@ -204,7 +255,6 @@ function App() {
     },
   });
 
-  // Auto-save all settings + tilesets + background to localStorage
   useEffect(() => {
     try {
       localStorage.setItem('tile-glitch', JSON.stringify({
@@ -213,11 +263,11 @@ function App() {
         animateMasks, animationSpeed, cycleTiles, livePreview,
         seed, locked, tilesetWeights,
         effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
-        tilesets: tilesets.map(t => ({ id: t.id, url: t.url, excludeColors: t.excludeColors ?? [] })),
+        tilesets: tilesets.map(t => ({ id: t.id, url: t.url, name: t.name, excludeColors: t.excludeColors ?? [] })),
         bgDataUrl: bgDataUrl ?? null,
         aspectRatio,
       }));
-    } catch { /* localStorage full — skip silently */ }
+    } catch { /* localStorage full */ }
   }, [chaos, coherence, normalize, scale, excludeTolerance,
       circularMaskChance, disappearChance, backgroundColor,
       animateMasks, animationSpeed, cycleTiles, livePreview,
@@ -226,9 +276,7 @@ function App() {
       tilesets, bgDataUrl, aspectRatio]);
 
   const handleChange    = (setter) => (e) => setter(Number(e.target.value));
-  const handlePointerUp = useCallback(() => {
-    if (!livePreview && !locked) generate();
-  }, [livePreview, locked, generate]);
+  const handlePointerUp = useCallback(() => { if (!livePreview && !locked) generate(); }, [livePreview, locked, generate]);
 
   const handleNewSeed = useCallback(() => {
     const newSeed = Math.floor(Math.random() * 1e9);
@@ -240,36 +288,26 @@ function App() {
     const frame = captureFrame();
     if (!frame) return;
     const { pixels, width: cw, height: ch } = frame;
-    const scaleTag = exportScale > 1 ? `-${exportScale}x` : '';
-    const filename = `tile-glitch-${Date.now()}${scaleTag}.png`;
-
-    const full = document.createElement('canvas');
-    full.width  = cw;
-    full.height = ch;
-    const fctx    = full.getContext('2d');
+    const full  = document.createElement('canvas');
+    full.width  = cw; full.height = ch;
+    const fctx  = full.getContext('2d');
     const imgData = fctx.createImageData(cw, ch);
     for (let row = 0; row < ch; row++) {
-      imgData.data.set(
-        pixels.subarray((ch - 1 - row) * cw * 4, (ch - row) * cw * 4),
-        row * cw * 4,
-      );
+      imgData.data.set(pixels.subarray((ch - 1 - row) * cw * 4, (ch - row) * cw * 4), row * cw * 4);
     }
     fctx.putImageData(imgData, 0, 0);
-
     const sx = cropRect ? cropRect.x      : 0;
     const sy = cropRect ? cropRect.y      : 0;
     const sw = cropRect ? cropRect.width  : cw;
     const sh = cropRect ? cropRect.height : ch;
-
     const out = document.createElement('canvas');
     out.width  = sw * exportScale;
     out.height = sh * exportScale;
-    const ctx = out.getContext('2d');
+    const ctx  = out.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height);
-
     const link = document.createElement('a');
-    link.download = filename;
+    link.download = `tile-glitch-${Date.now()}${exportScale > 1 ? `-${exportScale}x` : ''}.png`;
     link.href = out.toDataURL();
     link.click();
   };
@@ -282,11 +320,7 @@ function App() {
       animateMasks, animationSpeed, cycleTiles, livePreview,
       seed, locked, tilesetWeights,
       effectChroma, effectScanlines, effectBarrel, effectVignette, effectGrain, effectCRTMask,
-      tilesets: tilesets.map(t => ({
-        name: t.name ?? 'tileset',
-        weight: tilesetWeights[t.id] ?? 50,
-        excludeColors: t.excludeColors ?? [],
-      })),
+      tilesets: tilesets.map(t => ({ name: t.name ?? 'tileset', weight: tilesetWeights[t.id] ?? 50, excludeColors: t.excludeColors ?? [] })),
       background: bgUrl ? { name: 'background' } : null,
     };
     const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
@@ -325,7 +359,7 @@ function App() {
         if (p.effectVignette     !== undefined) setEffectVignette(p.effectVignette);
         if (p.effectGrain        !== undefined) setEffectGrain(p.effectGrain);
         if (p.effectCRTMask      !== undefined) setEffectCRTMask(p.effectCRTMask);
-      } catch { /* malformed JSON — ignore */ }
+      } catch { /* malformed JSON */ }
       e.target.value = '';
     };
     reader.readAsText(file);
@@ -336,299 +370,194 @@ function App() {
   return (
     <div className="app">
       <div className="container">
-        <div className={`controls docked ${minimizeUI ? 'minimized' : ''}`}>
-          <div className="panel-actions">
-            <button
-              className="minimize-btn"
-              onClick={() => setMinimizeUI(!minimizeUI)}
-              title={minimizeUI ? 'Expand' : 'Collapse'}
-            >
-              {minimizeUI ? '◀' : '▶'}
-            </button>
-          </div>
 
-          {!minimizeUI && (
-            <>
-              <div className="section-header">Tilesets</div>
+        {/* ── Side panel ──────────────────────────────────────────────── */}
+        <div className={`panel${minimizeUI ? ' collapsed' : ''}`}>
+          <button className="panel-toggle" onClick={() => setMinimizeUI(u => !u)} title={minimizeUI ? 'Expand' : 'Collapse'}>
+            {minimizeUI ? <IconChevronLeft /> : <IconChevronRight />}
+          </button>
 
-              <div className="control-group">
-                <input type="file" accept="image/*" multiple onChange={handleFileUpload} />
-              </div>
+          <div className="panel-body">
 
-              {tilesets.length > 0 && (
-                <div className="tilesets-list">
-                  {tilesets.map((tileset, index) => (
-                    <div key={tileset.id} className="tileset-item">
-                      <div className="tileset-header">
-                        <span>Tileset {index + 1}</span>
-                        <button onClick={() => removeTileset(tileset.id)} className="remove-btn">✕</button>
-                      </div>
-                      <div className="tileset-weight">
-                        <label>Weight: {tilesetWeights[tileset.id] || 50}%</label>
-                        <input
-                          type="range" min="0" max="100"
-                          value={tilesetWeights[tileset.id] || 50}
-                          onChange={(e) => setTilesetWeights(prev => ({ ...prev, [tileset.id]: Number(e.target.value) }))}
-                          onPointerUp={handlePointerUp}
-                        />
-                      </div>
-                      {(tileset.excludeColors ?? []).length > 0 && (
-                        <div className="exclude-colors-row">
-                          {tileset.excludeColors.map((hex, i) => (
-                            <div key={i} className="exclude-swatch">
-                              <input type="color" value={hex}
-                                onChange={(e) => updateExcludeColor(tileset.id, i, e.target.value)} />
-                              <button className="swatch-remove" onClick={() => removeExcludeColor(tileset.id, i)}>×</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <button className="btn-small" onClick={() => addExcludeColor(tileset.id)}>+ Exclude</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="section-header">Generation</div>
-
-              <div className="seed-row">
+            {/* GENERATION */}
+            <div className="section">
+              <span className="section-label">Generation</span>
+              <div className="gen-row">
                 <span className="seed-value">{seed}</span>
-                <button className="btn-small" onClick={handleNewSeed} title="New random seed">🎲</button>
-                <button
-                  className={`btn-small lock-btn ${locked ? 'active' : ''}`}
-                  onClick={() => setLocked(l => !l)}
-                  title={locked ? 'Unlock pattern' : 'Lock pattern'}
-                >{locked ? '🔒' : '🔓'}</button>
+                <button className={`icon-btn${locked ? ' locked' : ''}`} onClick={() => setLocked(l => !l)} title={locked ? 'Unlock' : 'Lock'}>
+                  <IconLock />
+                </button>
+                <button className="icon-btn" onClick={handleNewSeed} title="New seed">
+                  <IconRefresh />
+                </button>
               </div>
+            </div>
 
-              <div className="control-group">
-                <label>Chaos: {chaos}%</label>
-                <input type="range" min="0" max="100" value={chaos}
-                  onChange={handleChange(setChaos)} onPointerUp={handlePointerUp} />
-              </div>
+            {/* TILESETS */}
+            <div className="section">
+              <span className="section-label">Tilesets</span>
 
-              <div className="control-group">
-                <label>Connection: {coherence}%</label>
-                <input type="range" min="0" max="100" value={coherence}
-                  onChange={handleChange(setCoherence)} onPointerUp={handlePointerUp} />
-              </div>
-
-              <div className="control-group">
-                <label>Scale: {scale}x</label>
-                <input type="range" min="1" max="4" step="1" value={scale}
-                  onChange={handleChange(setScale)} onPointerUp={handlePointerUp} />
-              </div>
-
-              <div className="control-group">
-                <label>Normalize: {normalize}%</label>
-                <input type="range" min="0" max="100" value={normalize}
-                  onChange={handleChange(setNormalize)} onPointerUp={handlePointerUp} />
-              </div>
-
-              <div className="control-group">
-                <label>Circular Mask: {circularMaskChance}%</label>
-                <input type="range" min="0" max="100" value={circularMaskChance}
-                  onChange={handleChange(setCircularMaskChance)} onPointerUp={handlePointerUp} />
-              </div>
-
-              <div className="control-group checkbox">
-                <label>
-                  <input type="checkbox" checked={animateMasks}
-                    onChange={(e) => setAnimateMasks(e.target.checked)} />
-                  Animate Masks
-                </label>
-              </div>
-
-              {animateMasks && (
-                <div className="control-group">
-                  <label>Animation Speed: {animationSpeed}%</label>
-                  <input type="range" min="1" max="100" value={animationSpeed}
-                    onChange={handleChange(setAnimationSpeed)} onPointerUp={handlePointerUp} />
+              {tilesets.map((tileset, index) => (
+                <div key={tileset.id} className="tileset-card">
+                  <div className="tileset-header">
+                    <span className="tileset-name">{tileset.name ?? `Tileset ${index + 1}`}</span>
+                    <button className="tileset-remove" onClick={() => removeTileset(tileset.id)} title="Remove">
+                      <IconTrash />
+                    </button>
+                  </div>
+                  <SettingGroup
+                    label="Weight" value={tilesetWeights[tileset.id] ?? 50}
+                    displayValue={`${tilesetWeights[tileset.id] ?? 50}%`}
+                    min={0} max={100}
+                    onChange={e => setTilesetWeights(prev => ({ ...prev, [tileset.id]: Number(e.target.value) }))}
+                    onPointerUp={handlePointerUp} inv
+                  />
+                  {(tileset.excludeColors ?? []).length > 0 && (
+                    <div className="exclude-colors">
+                      {tileset.excludeColors.map((hex, i) => (
+                        <div key={i} className="exclude-swatch">
+                          <input type="color" value={hex} onChange={e => updateExcludeColor(tileset.id, i, e.target.value)} />
+                          <button className="swatch-remove" onClick={() => removeExcludeColor(tileset.id, i)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button className="btn btn-on-dark" onClick={() => addExcludeColor(tileset.id)}>
+                    Exclude Color
+                  </button>
                 </div>
+              ))}
+
+              <label className="btn btn-primary" htmlFor="tileset-upload">Add Tileset</label>
+              <input id="tileset-upload" type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
+
+              {tileCount > 0 && <span className="tile-info">{tileCount} tiles loaded</span>}
+            </div>
+
+            {/* PARAMETERS */}
+            <div className="section">
+              <span className="section-label">Parameters</span>
+              <SettingGroup label="Chaos"         value={chaos}              displayValue={`${chaos}%`}              min={0} max={100} onChange={handleChange(setChaos)}              onPointerUp={handlePointerUp} />
+              <SettingGroup label="Connection"    value={coherence}          displayValue={`${coherence}%`}          min={0} max={100} onChange={handleChange(setCoherence)}          onPointerUp={handlePointerUp} />
+              <SettingGroup label="Scale"         value={scale}              displayValue={`${scale}×`}              min={1} max={4} step={1} onChange={handleChange(setScale)}       onPointerUp={handlePointerUp} />
+              <SettingGroup label="Normalize"     value={normalize}          displayValue={`${normalize}%`}          min={0} max={100} onChange={handleChange(setNormalize)}          onPointerUp={handlePointerUp} />
+              <SettingGroup label="Circular Mask" value={circularMaskChance} displayValue={`${circularMaskChance}%`} min={0} max={100} onChange={handleChange(setCircularMaskChance)} onPointerUp={handlePointerUp} />
+              <SettingGroup label="Disappear"     value={disappearChance}    displayValue={`${disappearChance}%`}    min={0} max={100} onChange={handleChange(setDisappearChance)}    onPointerUp={handlePointerUp} />
+              <Toggle checked={animateMasks} onChange={e => setAnimateMasks(e.target.checked)} label="Animate Masks" />
+              {animateMasks && (
+                <SettingGroup label="Anim Speed" value={animationSpeed} displayValue={`${animationSpeed}%`} min={1} max={100} onChange={handleChange(setAnimationSpeed)} onPointerUp={handlePointerUp} />
               )}
+              <Toggle checked={cycleTiles} onChange={e => setCycleTiles(e.target.checked)} label="Cycle All Tiles" />
+            </div>
 
-              <div className="control-group">
-                <label>Disappear: {disappearChance}%</label>
-                <input type="range" min="0" max="100" value={disappearChance}
-                  onChange={handleChange(setDisappearChance)} onPointerUp={handlePointerUp} />
+            {/* EFFECTS */}
+            <div className="section">
+              <span className="section-label">Effects</span>
+              <SettingGroup label="Chroma"    value={effectChroma}    displayValue={`${effectChroma}%`}    min={0} max={100} onChange={handleChange(setEffectChroma)} />
+              <SettingGroup label="Scanlines" value={effectScanlines} displayValue={`${effectScanlines}%`} min={0} max={100} onChange={handleChange(setEffectScanlines)} />
+              <SettingGroup label="Barrel"    value={effectBarrel}    displayValue={`${effectBarrel}%`}    min={0} max={100} onChange={handleChange(setEffectBarrel)} />
+              <SettingGroup label="Vignette"  value={effectVignette}  displayValue={`${effectVignette}%`}  min={0} max={100} onChange={handleChange(setEffectVignette)} />
+              <SettingGroup label="Film Grain" value={effectGrain}    displayValue={`${effectGrain}%`}     min={0} max={100} onChange={handleChange(setEffectGrain)} />
+              <SettingGroup label="CRT Mask"  value={effectCRTMask}   displayValue={`${effectCRTMask}%`}   min={0} max={100} onChange={handleChange(setEffectCRTMask)} />
+            </div>
+
+            {/* COLORS */}
+            <div className="section">
+              <span className="section-label">Colors</span>
+              <div className="setting-group">
+                <div className="setting-heading">
+                  <span className="setting-name">Background</span>
+                </div>
+                <input type="color" value={backgroundColor} onChange={e => setBackgroundColor(e.target.value)} className="color-input" />
               </div>
+              <SettingGroup label="Excl. Tolerance" value={excludeTolerance} min={0} max={32} onChange={handleChange(setExcludeTolerance)} onPointerUp={handlePointerUp} />
+            </div>
 
-              <div className="control-group checkbox">
-                <label>
-                  <input type="checkbox" checked={cycleTiles}
-                    onChange={(e) => setCycleTiles(e.target.checked)} />
-                  Cycle All Tiles
-                </label>
+            {/* BACKGROUND */}
+            <div className="section">
+              <span className="section-label">Background</span>
+              <div className="bg-row">
+                <label className="btn btn-secondary" htmlFor="bg-upload">Upload</label>
+                <input id="bg-upload" type="file" accept="image/*" onChange={handleBgUpload} style={{ display: 'none' }} />
+                {bgUrl && <>
+                  <img src={bgUrl} alt="bg" className="bg-thumbnail" />
+                  <button className="btn btn-secondary" style={{ width: 'auto', padding: '0 10px' }} onClick={clearBackground}>Clear</button>
+                </>}
               </div>
+            </div>
 
-              <div className="section-header">Colors</div>
-
-              <div className="control-group">
-                <label>Background Color</label>
-                <input type="color" value={backgroundColor}
-                  onChange={(e) => setBackgroundColor(e.target.value)} />
+            {/* MASK */}
+            <div className="section">
+              <span className="section-label">Mask</span>
+              <div className="btn-group">
+                <button className={`btn-toggle${paintMode === 'paint' ? ' active' : ''}`} onClick={() => setPaintMode('paint')}>Paint</button>
+                <button className={`btn-toggle${paintMode === 'erase' ? ' active' : ''}`} onClick={() => setPaintMode('erase')}>Erase</button>
               </div>
-
-              <div className="control-group">
-                <label>Exclude Tolerance: {excludeTolerance}</label>
-                <input type="range" min="0" max="32" value={excludeTolerance}
-                  onChange={handleChange(setExcludeTolerance)} onPointerUp={handlePointerUp} />
+              <SettingGroup label="Brush Size" value={brushSize} min={1} max={10} onChange={handleChange(setBrushSize)} />
+              <div className="undo-row">
+                <button className="btn btn-secondary" onClick={undo} disabled={!canUndo}>Undo</button>
+                <button className="btn btn-secondary" onClick={redo} disabled={!canRedo}>Redo</button>
               </div>
+              <button className="btn btn-secondary" onClick={resetMask}>Reset Mask</button>
+            </div>
 
-              <div className="section-header">Effects</div>
-
-              <div className="control-group">
-                <label>Chromatic Aberration: {effectChroma}%</label>
-                <input type="range" min="0" max="100" value={effectChroma}
-                  onChange={handleChange(setEffectChroma)} />
-              </div>
-
-              <div className="control-group">
-                <label>Scanlines: {effectScanlines}%</label>
-                <input type="range" min="0" max="100" value={effectScanlines}
-                  onChange={handleChange(setEffectScanlines)} />
-              </div>
-
-              <div className="control-group">
-                <label>Barrel: {effectBarrel}%</label>
-                <input type="range" min="0" max="100" value={effectBarrel}
-                  onChange={handleChange(setEffectBarrel)} />
-              </div>
-
-              <div className="control-group">
-                <label>Vignette: {effectVignette}%</label>
-                <input type="range" min="0" max="100" value={effectVignette}
-                  onChange={handleChange(setEffectVignette)} />
-              </div>
-
-              <div className="control-group">
-                <label>Film Grain: {effectGrain}%</label>
-                <input type="range" min="0" max="100" value={effectGrain}
-                  onChange={handleChange(setEffectGrain)} />
-              </div>
-
-              <div className="control-group">
-                <label>CRT Mask: {effectCRTMask}%</label>
-                <input type="range" min="0" max="100" value={effectCRTMask}
-                  onChange={handleChange(setEffectCRTMask)} />
-              </div>
-
-              <div className="section-header">Background Image</div>
-
-              <div className="control-group bg-upload-row">
-                <label className="btn-secondary" htmlFor="bg-upload">Upload Image</label>
-                <input id="bg-upload" type="file" accept="image/*" onChange={handleBgUpload}
-                  style={{ display: 'none' }} />
-                {bgUrl && (
-                  <>
-                    <img src={bgUrl} alt="bg thumbnail" className="bg-thumbnail" />
-                    <button className="btn-small" onClick={clearBackground}>Clear</button>
-                  </>
-                )}
-              </div>
-
-              <div className="section-header">Mask</div>
-
-              <div className="paint-toggle">
-                <button
-                  className={`toggle-btn ${paintMode === 'paint' ? 'active' : ''}`}
-                  onClick={() => setPaintMode('paint')}
-                >Paint</button>
-                <button
-                  className={`toggle-btn ${paintMode === 'erase' ? 'active' : ''}`}
-                  onClick={() => setPaintMode('erase')}
-                >Erase</button>
-              </div>
-
-              <div className="control-group">
-                <label>Brush Size: {brushSize}</label>
-                <input type="range" min="1" max="10" value={brushSize}
-                  onChange={handleChange(setBrushSize)} />
-              </div>
-
-              <div className="undo-redo-row">
-                <button className="btn-secondary" onClick={undo} disabled={!canUndo}>↩ Undo</button>
-                <button className="btn-secondary" onClick={redo} disabled={!canRedo}>↪ Redo</button>
-              </div>
-
-              <button className="btn-secondary" onClick={resetMask}>Reset Mask</button>
-
-              <div className="section-divider" />
-
-              <div className="section-header">Canvas</div>
+            {/* CANVAS */}
+            <div className="section">
+              <span className="section-label">Canvas</span>
               <div className="aspect-grid">
                 {['free', '1:1', '4:3', '3:2', '16:9', '9:16', '2:3', '3:4'].map(r => (
-                  <button key={r} className={`toggle-btn ${aspectRatio === r ? 'active' : ''}`}
-                    onClick={() => setAspectRatio(r)}>
+                  <button key={r} className={`btn-toggle${aspectRatio === r ? ' active' : ''}`} onClick={() => setAspectRatio(r)}>
                     {r === 'free' ? 'Free' : r}
                   </button>
                 ))}
               </div>
+            </div>
 
-              <div className="section-divider" />
-
-              <div className="control-group checkbox">
-                <label>
-                  <input type="checkbox" checked={livePreview}
-                    onChange={(e) => setLivePreview(e.target.checked)} />
-                  Live Preview
-                </label>
-              </div>
-
-              <button onClick={() => generate()} disabled={tileCount === 0 || locked}>
-                🎲 Regenerate
+            {/* EXPORT */}
+            <div className="section">
+              <span className="section-label">Export</span>
+              <Toggle checked={livePreview} onChange={e => setLivePreview(e.target.checked)} label="Live Preview" />
+              <button className="btn btn-secondary" onClick={() => generate()} disabled={tileCount === 0 || locked}>
+                Regenerate
               </button>
-
-              <div className="control-group">
-                <label>Export Scale</label>
-                <div className="toggle-row">
+              <div className="setting-group">
+                <div className="setting-heading">
+                  <span className="setting-name">Scale</span>
+                </div>
+                <div className="scale-row">
                   {[1, 2, 4, 8].map(s => (
-                    <button key={s} className={`toggle-btn ${exportScale === s ? 'active' : ''}`}
-                      onClick={() => setExportScale(s)}>
+                    <button key={s} className={`btn-toggle${exportScale === s ? ' active' : ''}`} onClick={() => setExportScale(s)}>
                       {s}×
                     </button>
                   ))}
                 </div>
               </div>
-
-              <button onClick={exportPattern} disabled={tileCount === 0}>
-                💾 Export PNG
+              <button className="btn btn-primary" onClick={exportPattern} disabled={tileCount === 0}>
+                Export PNG
               </button>
-
-              <button onClick={exportPreset}>
-                📋 Export Preset
+              <button className="btn btn-secondary" onClick={exportPreset}>
+                Export Preset
               </button>
-
-              <label className="btn-secondary" htmlFor="import-preset" style={{ textAlign: 'center', cursor: 'pointer' }}>
-                📂 Import Preset
+              <label className="btn btn-secondary" htmlFor="import-preset">
+                Import Preset
               </label>
-              <input id="import-preset" type="file" accept=".json" onChange={importPreset}
-                style={{ display: 'none' }} />
+              <input id="import-preset" type="file" accept=".json" onChange={importPreset} style={{ display: 'none' }} />
+            </div>
 
-              {tileCount > 0 && (
-                <div className="info">📊 {tileCount} tiles loaded</div>
-              )}
-            </>
-          )}
+          </div>
         </div>
 
+        {/* ── Canvas area ─────────────────────────────────────────────── */}
         <div className="canvas-wrapper" ref={wrapperRef}>
           <div style={{ transformOrigin: '0 0', transform: `scale(${zoom})`, display: 'inline-block', lineHeight: 0 }}>
-            <canvas
-              ref={canvasRef}
-              width={canvasSize.width}
-              height={canvasSize.height}
-            />
+            <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} />
             {brushPreview && tileCount > 0 && (
-              <div
-                className="brush-preview"
-                style={{
-                  left:   `${(brushPreview.col - brushPreview.size) * scaledTileSize}px`,
-                  top:    `${(brushPreview.row - brushPreview.size) * scaledTileSize}px`,
-                  width:  `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
-                  height: `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
-                }}
-              />
+              <div className="brush-preview" style={{
+                left:   `${(brushPreview.col - brushPreview.size) * scaledTileSize}px`,
+                top:    `${(brushPreview.row - brushPreview.size) * scaledTileSize}px`,
+                width:  `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
+                height: `${(brushPreview.size * 2 + 1) * scaledTileSize}px`,
+              }} />
             )}
             {cropRect && (<>
               <div className="crop-overlay" style={{ left: cropRect.x, top: cropRect.y, width: cropRect.width, height: cropRect.height }} />
@@ -639,25 +568,15 @@ function App() {
             </>)}
           </div>
           {import.meta.env.DEV && animateMasks && fps !== null && (
-            <div style={{
-              position: 'absolute', top: 8, right: 8,
-              background: 'rgba(0,0,0,0.6)', color: '#0f0',
-              fontFamily: 'monospace', fontSize: '12px',
-              padding: '2px 6px', borderRadius: '3px',
-              pointerEvents: 'none',
-            }}>
-              {fps} fps
-            </div>
+            <div className="fps-overlay">{fps} fps</div>
           )}
           {zoom !== 1 && (
-            <button
-              className="zoom-reset"
-              onClick={() => setZoom(1)}
-            >
+            <button className="zoom-reset" onClick={() => setZoom(1)}>
               {Math.round(zoom * 100)}% ↺
             </button>
           )}
         </div>
+
       </div>
     </div>
   );
