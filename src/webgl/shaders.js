@@ -189,7 +189,8 @@ void main() {
   if (uChroma > 0.001) {
     vec2 d      = uv - 0.5;
     float dist  = length(d);
-    vec2 offset = normalize(d) * dist * uChroma * 0.05;
+    vec2 dir    = dist > 0.0001 ? d / dist : vec2(0.0);
+    vec2 offset = dir * dist * uChroma * 0.05;
     color.r = texture(uScene, uv + offset).r;
     color.g = texture(uScene, uv).g;
     color.b = texture(uScene, uv - offset).b;

@@ -208,8 +208,12 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
   // --- Upload atlas texture when atlasData changes ---
   useEffect(() => {
     const gl = glRef.current;
-    if (!gl || !atlasData) return;
-    if (atlasTexRef.current) gl.deleteTexture(atlasTexRef.current);
+    if (!gl) return;
+    if (atlasTexRef.current) {
+      gl.deleteTexture(atlasTexRef.current);
+      atlasTexRef.current = null;
+    }
+    if (!atlasData) return;
 
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -240,7 +244,11 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
   // --- Upload instance data when it changes ---
   useEffect(() => {
     const gl = glRef.current;
-    if (!gl || !instanceData) return;
+    if (!gl) return;
+    if (!instanceData) {
+      instanceCountRef.current = 0;
+      return;
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBufRef.current);
     gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.DYNAMIC_DRAW);
     instanceCountRef.current = instanceData.length / FLOATS_PER_INSTANCE;
@@ -278,27 +286,27 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
         gl.bindVertexArray(null);
       }
 
-      if (!atlasTexRef.current || instanceCountRef.current === 0) return;
-
       // --- Tile pass ---
-      const activeMaskTex = maskTextureRef?.current ?? dummyMaskTexRef.current;
-      const hasMask       = !!(maskTextureRef?.current);
+      if (atlasTexRef.current && instanceCountRef.current > 0) {
+        const activeMaskTex = maskTextureRef?.current ?? dummyMaskTexRef.current;
+        const hasMask       = !!(maskTextureRef?.current);
 
-      gl.useProgram(programInfoRef.current.program);
-      twgl.setUniforms(programInfoRef.current, {
-        uCanvasSize: [canvasSize.width, canvasSize.height],
-        uTileSize:   TILE_SIZE * scale,
-        uAtlas:      atlasTexRef.current,
-        uMask:       activeMaskTex,
-        uHasMask:    hasMask,
-        uTime:       timestamp ?? 0,
-        uBaseSpeed:  (animationSpeed / 1000) * 0.1,
-        uAnimate:    animateMasks,
-      });
+        gl.useProgram(programInfoRef.current.program);
+        twgl.setUniforms(programInfoRef.current, {
+          uCanvasSize: [canvasSize.width, canvasSize.height],
+          uTileSize:   TILE_SIZE * scale,
+          uAtlas:      atlasTexRef.current,
+          uMask:       activeMaskTex,
+          uHasMask:    hasMask,
+          uTime:       timestamp ?? 0,
+          uBaseSpeed:  (animationSpeed / 1000) * 0.1,
+          uAnimate:    animateMasks,
+        });
 
-      gl.bindVertexArray(vaoRef.current);
-      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCountRef.current);
-      gl.bindVertexArray(null);
+        gl.bindVertexArray(vaoRef.current);
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCountRef.current);
+        gl.bindVertexArray(null);
+      }
 
       // --- Post-processing pass: FBO texture → canvas ---
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -345,7 +353,7 @@ export function useWebGLRenderer(canvasRef, atlasData, instanceData, renderSetti
     rafRef.current = requestAnimationFrame(loop);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [animateMasks, animationSpeed, backgroundColor, canvasSize, scale,
-      instanceData, bgImage, maskVersion, maskTextureRef,
+      atlasData, instanceData, bgImage, maskVersion, maskTextureRef,
       chroma, scanlines, barrel, vignette, grain, crtMask]);
 
   const captureFrame = () => {

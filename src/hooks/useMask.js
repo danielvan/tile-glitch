@@ -36,21 +36,26 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
   const MAX_HISTORY     = 20;
   const historyRef      = useRef([]);
   const historyIndexRef = useRef(-1);
-  const [historyVersion, setHistoryVersion] = useState(0);
+  const [, setHistoryVersion] = useState(0);
 
   const [maskVersion,   setMaskVersion]   = useState(0);
   const [brushPreview,  setBrushPreview]  = useState(null);
 
+  const getGl = useCallback(() => canvasRef.current?.getContext('webgl2', {
+    alpha: false,
+    preserveDrawingBuffer: true,
+  }), [canvasRef]);
+
   // Upload the full mask array to the GPU
   const uploadMask = useCallback(() => {
-    const gl = canvasRef.current?.getContext('webgl2');
+    const gl = getGl();
     if (!gl || !maskArrayRef.current || !maskTextureRef.current) return;
     const { cols: c, rows: r } = oldDimsRef.current;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.bindTexture(gl.TEXTURE_2D, maskTextureRef.current);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, c, r, 0, gl.RED, gl.UNSIGNED_BYTE, maskArrayRef.current);
     setMaskVersion(v => v + 1);
-  }, [canvasRef]);
+  }, [getGl]);
 
   const saveSnapshot = useCallback(() => {
     if (!maskArrayRef.current) return;
@@ -83,7 +88,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
   // Allocate / resize mask array and create/update GPU texture
   useEffect(() => {
     if (!cols || !rows) return;
-    const gl = canvasRef.current?.getContext('webgl2');
+    const gl = getGl();
     if (!gl) return;
 
     const newMask = new Uint8Array(cols * rows);
@@ -116,11 +121,11 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
       restoredMaskRef.current = null;
     }
 
-    historyRef.current      = [];
-    historyIndexRef.current = -1;
-    setHistoryVersion(v => v + 1);
     maskArrayRef.current = newMask;
     oldDimsRef.current   = { cols, rows };
+    historyRef.current      = [newMask.slice()];
+    historyIndexRef.current = 0;
+    setHistoryVersion(v => v + 1);
 
     // Create texture on first call, reuse thereafter
     if (!maskTextureRef.current) {
@@ -137,7 +142,7 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
     gl.bindTexture(gl.TEXTURE_2D, maskTextureRef.current);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, newMask);
     setMaskVersion(v => v + 1);
-  }, [canvasRef, cols, rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [getGl, cols, rows]);
 
   // Persist mask to localStorage after every change
   useEffect(() => {
@@ -233,9 +238,10 @@ export function useMask(canvasRef, cols, rows, scaledTileSize, paintMode, brushS
 
   const resetMask = useCallback(() => {
     if (!maskArrayRef.current) return;
-    saveSnapshot();
+    if (!maskArrayRef.current.some(Boolean)) return;
     maskArrayRef.current.fill(0);
     uploadMask();
+    saveSnapshot();
   }, [saveSnapshot, uploadMask]);
 
   return { maskTextureRef, maskVersion, resetMask, brushPreview, undo, redo, canUndo, canRedo };

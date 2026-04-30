@@ -29,7 +29,11 @@ export function usePatternGenerator(atlasData, settings, livePreview, locked) {
 
   // Send init message when atlas data changes
   useEffect(() => {
-    if (!atlasData || !workerRef.current) return;
+    if (!workerRef.current) return;
+    if (!atlasData) {
+      setInstanceData(null);
+      return;
+    }
     workerRef.current.postMessage({
       type:    'init',
       tiles:   atlasData.tiles,
@@ -58,7 +62,7 @@ export function usePatternGenerator(atlasData, settings, livePreview, locked) {
       });
     }
     // If !livePreview, generate() is called manually from App (on pointer-up or button)
-  }, [atlasData, settings, livePreview, locked]);
+  }, [atlasData, settings, livePreview, locked, generate]);
 
   return { instanceData, generate };
 }

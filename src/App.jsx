@@ -160,7 +160,7 @@ function App() {
       img.onerror = () => resolve(null);
       img.src = t.url;
     }))).then(results => setTilesets(results.filter(Boolean)));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
@@ -352,7 +352,22 @@ function App() {
         if (p.livePreview        !== undefined) setLivePreview(p.livePreview);
         if (p.seed               !== undefined) setSeed(p.seed);
         if (p.locked             !== undefined) setLocked(p.locked);
-        if (p.tilesetWeights     !== undefined) setTilesetWeights(p.tilesetWeights);
+        if (Array.isArray(p.tilesets)) {
+          const presetByName = new Map(p.tilesets.map(t => [t.name, t]));
+          const nextWeights = {};
+          const nextTilesets = tilesets.map(t => {
+            const match = presetByName.get(t.name);
+            if (!match) return t;
+            if (match.weight !== undefined) nextWeights[t.id] = match.weight;
+            return match.excludeColors !== undefined ? { ...t, excludeColors: match.excludeColors } : t;
+          });
+          setTilesets(nextTilesets);
+          if (Object.keys(nextWeights).length) {
+            setTilesetWeights(prev => ({ ...prev, ...nextWeights }));
+          }
+        } else if (p.tilesetWeights !== undefined) {
+          setTilesetWeights(p.tilesetWeights);
+        }
         if (p.effectChroma       !== undefined) setEffectChroma(p.effectChroma);
         if (p.effectScanlines    !== undefined) setEffectScanlines(p.effectScanlines);
         if (p.effectBarrel       !== undefined) setEffectBarrel(p.effectBarrel);
